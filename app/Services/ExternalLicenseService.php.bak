@@ -1,0 +1,838 @@
+<?php
+
+namespace App\Services;
+
+use App\Models\PgConfiguracion;
+use Carbon\Carbon;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use RecursiveDirectoryIterator;
+use RecursiveIteratorIterator;
+use ZipArchive;
+
+class ExternalLicenseService
+{
+    private const CACHE_FILE = 'license/license_state.json';
+    private const UPDATE_DIR = 'license_updates';
+
+    public function defaults(): array
+    {
+        return [
+            'server_url' => trim((string) PgConfiguracion::valor('LICENCIA_SERVIDOR_URL', '')),
+            'license_key' => trim((string) PgConfiguracion::valor('LICENCIA_CLAVE', '')),
+            'product_code' => trim((string) PgConfiguracion::valor('LICENCIA_PRODUCTO_CODIGO', '')),
+            'domain' => trim((string) PgConfiguracion::valor('LICENCIA_DOMINIO', '')),
+            'installation_id' => trim((string) PgConfiguracion::valor('LICENCIA_INSTALACION_ID', '')),
+            'validate_minutes' => max(1, (int) PgConfiguracion::valor('LICENCIA_VALIDAR_CADA_MINUTOS', '60')),
+            'grace_hours' => max(0, (int) PgConfiguracion::valor('LICENCIA_GRACIA_HORAS', '24')),
+            'timeout_seconds' => max(3, (int) PgConfiguracion::valor('LICENCIA_TIMEOUT_SEGUNDOS', '10')),
+            'block_without_config' => PgConfiguracion::bool('LICENCIA_BLOQUEAR_SIN_CONFIG', false),
+            'auto_activate' => PgConfiguracion::bool('LICENCIA_AUTO_ACTIVAR', true),
+            'clone_protection' => PgConfiguracion::bool('LICENCIA_PROTEGER_CLONACION', true),
+            'hardware_lock' => PgConfiguracion::bool('LICENCIA_BLOQUEO_HARDWARE', true),
+            'rsa_public_key' => trim((string) PgConfiguracion::valor('LICENCIA_RSA_PUBLIC_KEY', '')),
+            'update_auto' => PgConfiguracion::bool('LICENCIA_UPDATE_AUTO_ACTIVO', false),
+            'update_auto_apply' => PgConfiguracion::bool('LICENCIA_UPDATE_AUTO_APLICAR', false),
+            'update_endpoint' => trim((string) PgConfiguracion::valor('LICENCIA_UPDATE_ENDPOINT', '/api/v1/licencias/updates/{license_key}')),
+            'current_version' => trim((string) PgConfiguracion::valor('LICENCIA_VERSION_ACTUAL', config('app.version', '1.0.0'))),
+            'update_check_minutes' => max(5, (int) PgConfiguracion::valor('LICENCIA_UPDATE_CHECK_MINUTOS', '180')),
+        ];
+    }
+
+    public function ensureSeeded(): void
+    {
+        $rows = [
+            ['LICENCIA_SERVIDOR_URL', '', 'texto', 'URL base del servidor de licencias', 'licencias'],
+            ['LICENCIA_CLAVE', '', 'texto', 'Clave de licencia del sistema', 'licencias'],
+            ['LICENCIA_PRODUCTO_CODIGO', '', 'texto', 'Código del producto licenciado', 'licencias'],
+            ['LICENCIA_DOMINIO', '', 'texto', 'Dominio reportado al servidor de licencias', 'licencias'],
+            ['LICENCIA_INSTALACION_ID', '', 'texto', 'ID estable de instalación', 'licencias'],
+            ['LICENCIA_VALIDAR_CADA_MINUTOS', '60', 'numero', 'Intervalo entre validaciones automáticas', 'licencias'],
+            ['LICENCIA_GRACIA_HORAS', '24', 'numero', 'Horas de gracia si el servidor no responde', 'licencias'],
+            ['LICENCIA_TIMEOUT_SEGUNDOS', '10', 'numero', 'Timeout HTTP para validar licencia', 'licencias'],
+            ['LICENCIA_BLOQUEAR_SIN_CONFIG', 'N', 'booleano', 'Bloquear el sistema si faltan datos de licencia', 'licencias'],
+            ['LICENCIA_AUTO_ACTIVAR', 'S', 'booleano', 'Intentar activar la instalación automáticamente', 'licencias'],
+            ['LICENCIA_BLOQUEO_HARDWARE', 'S', 'booleano', 'Amarrar licencia al hardware local', 'licencias'],
+            ['LICENCIA_PROTEGER_CLONACION', 'S', 'booleano', 'Bloquear clonaciones si cambia la huella local', 'licencias'],
+            ['LICENCIA_RSA_PUBLIC_KEY', '', 'texto', 'Llave pública RSA PEM para validar firmas del servidor', 'licencias'],
+            ['LICENCIA_VERSION_ACTUAL', config('app.version', '1.0.0'), 'texto', 'Versión local instalada', 'licencias'],
+            ['LICENCIA_UPDATE_AUTO_ACTIVO', 'N', 'booleano', 'Descargar automáticamente paquetes de actualización', 'licencias'],
+            ['LICENCIA_UPDATE_AUTO_APLICAR', 'N', 'booleano', 'Aplicar automáticamente el paquete descargado', 'licencias'],
+            ['LICENCIA_UPDATE_ENDPOINT', '/api/v1/licencias/updates/{license_key}', 'texto', 'Endpoint relativo para consultar actualizaciones', 'licencias'],
+            ['LICENCIA_UPDATE_CHECK_MINUTOS', '180', 'numero', 'Intervalo para revisar actualizaciones', 'licencias'],
+            ['LICENCIA_ULTIMA_VALIDACION_AT', '', 'texto', 'Última validación de licencia', 'licencias'],
+            ['LICENCIA_ULTIMA_VALIDACION_OK', 'N', 'booleano', 'Último resultado de validación', 'licencias'],
+            ['LICENCIA_ULTIMA_VALIDACION_OK_AT', '', 'texto', 'Fecha de última validación correcta', 'licencias'],
+            ['LICENCIA_ULTIMO_ESTADO', '', 'texto', 'Último estado devuelto por el servidor', 'licencias'],
+            ['LICENCIA_ULTIMO_MENSAJE', '', 'texto', 'Último mensaje de licencia', 'licencias'],
+            ['LICENCIA_ULTIMA_RESPUESTA_CODIGO', '', 'texto', 'Último código HTTP recibido', 'licencias'],
+            ['LICENCIA_FIRMA', '', 'texto', 'Última firma del servidor', 'licencias'],
+            ['LICENCIA_RAW_RESPUESTA', '', 'texto', 'Última respuesta completa del servidor', 'licencias'],
+            ['LICENCIA_ULTIMA_VALIDACION_OFFLINE_AT', '', 'texto', 'Última vez que se usó la caché offline', 'licencias'],
+            ['LICENCIA_ACTIVADA', 'N', 'booleano', 'La instalación ya fue activada correctamente', 'licencias'],
+            ['LICENCIA_HARDWARE_FINGERPRINT', '', 'texto', 'Huella actual del hardware', 'licencias'],
+            ['LICENCIA_CLONE_FINGERPRINT', '', 'texto', 'Huella local anti clonación', 'licencias'],
+            ['LICENCIA_UPDATE_ULTIMO_CHECK_AT', '', 'texto', 'Última consulta de actualizaciones', 'licencias'],
+            ['LICENCIA_UPDATE_ULTIMO_ESTADO', '', 'texto', 'Último estado de actualización', 'licencias'],
+            ['LICENCIA_UPDATE_ULTIMO_MENSAJE', '', 'texto', 'Último mensaje de actualización', 'licencias'],
+            ['LICENCIA_UPDATE_ULTIMA_VERSION', '', 'texto', 'Última versión remota detectada', 'licencias'],
+            ['LICENCIA_UPDATE_DOWNLOAD_URL', '', 'texto', 'URL de descarga del update detectado', 'licencias'],
+            ['LICENCIA_UPDATE_CHECKSUM', '', 'texto', 'Checksum sha256 del update remoto', 'licencias'],
+            ['LICENCIA_UPDATE_PAQUETE_LOCAL', '', 'texto', 'Ruta local del último paquete descargado', 'licencias'],
+            ['LICENCIA_UPDATE_PAQUETE_NOMBRE', '', 'texto', 'Nombre del último paquete descargado', 'licencias'],
+            ['LICENCIA_UPDATE_READY', 'N', 'booleano', 'Existe un paquete listo para aplicar', 'licencias'],
+            ['LICENCIA_UPDATE_ULTIMA_APLICACION_AT', '', 'texto', 'Fecha de la última aplicación de update', 'licencias'],
+            ['LICENCIA_UPDATE_ULTIMA_APLICACION_ESTADO', '', 'texto', 'Resultado de la última aplicación de update', 'licencias'],
+            ['LICENCIA_UPDATE_ULTIMO_BACKUP', '', 'texto', 'Ruta del último backup previo a aplicar update', 'licencias'],
+        ];
+
+        foreach ($rows as [$k, $v, $t, $d, $g]) {
+            PgConfiguracion::setValor($k, PgConfiguracion::valor($k, $v), $t, $d, $g);
+        }
+
+        if (trim((string) PgConfiguracion::valor('LICENCIA_INSTALACION_ID', '')) === '') {
+            PgConfiguracion::setValor('LICENCIA_INSTALACION_ID', $this->suggestInstallationId(), 'texto', 'ID estable de instalación', 'licencias');
+        }
+        if (trim((string) PgConfiguracion::valor('LICENCIA_DOMINIO', '')) === '') {
+            PgConfiguracion::setValor('LICENCIA_DOMINIO', $this->guessDomain(), 'texto', 'Dominio reportado al servidor de licencias', 'licencias');
+        }
+    }
+
+    public function dashboardSummary(): array
+    {
+        $this->ensureSeeded();
+        return [
+            'configured' => $this->isConfigured(),
+            'activated' => PgConfiguracion::bool('LICENCIA_ACTIVADA', false),
+            'last_ok' => PgConfiguracion::bool('LICENCIA_ULTIMA_VALIDACION_OK', false),
+            'status' => (string) PgConfiguracion::valor('LICENCIA_ULTIMO_ESTADO', ''),
+            'message' => (string) PgConfiguracion::valor('LICENCIA_ULTIMO_MENSAJE', ''),
+            'license_key' => (string) PgConfiguracion::valor('LICENCIA_CLAVE', ''),
+            'product_code' => (string) PgConfiguracion::valor('LICENCIA_PRODUCTO_CODIGO', ''),
+            'last_validation_at' => (string) PgConfiguracion::valor('LICENCIA_ULTIMA_VALIDACION_AT', ''),
+            'last_ok_at' => (string) PgConfiguracion::valor('LICENCIA_ULTIMA_VALIDACION_OK_AT', ''),
+            'http_code' => (string) PgConfiguracion::valor('LICENCIA_ULTIMA_RESPUESTA_CODIGO', ''),
+            'domain' => (string) PgConfiguracion::valor('LICENCIA_DOMINIO', $this->guessDomain()),
+            'installation_id' => (string) PgConfiguracion::valor('LICENCIA_INSTALACION_ID', $this->suggestInstallationId()),
+            'hardware_fingerprint' => (string) PgConfiguracion::valor('LICENCIA_HARDWARE_FINGERPRINT', $this->hardwareFingerprint()),
+            'clone_fingerprint' => (string) PgConfiguracion::valor('LICENCIA_CLONE_FINGERPRINT', $this->cloneFingerprint()),
+            'update_state' => (string) PgConfiguracion::valor('LICENCIA_UPDATE_ULTIMO_ESTADO', ''),
+            'update_message' => (string) PgConfiguracion::valor('LICENCIA_UPDATE_ULTIMO_MENSAJE', ''),
+            'update_version' => (string) PgConfiguracion::valor('LICENCIA_UPDATE_ULTIMA_VERSION', ''),
+            'update_download_url' => (string) PgConfiguracion::valor('LICENCIA_UPDATE_DOWNLOAD_URL', ''),
+            'update_package_local' => (string) PgConfiguracion::valor('LICENCIA_UPDATE_PAQUETE_LOCAL', ''),
+            'update_package_name' => (string) PgConfiguracion::valor('LICENCIA_UPDATE_PAQUETE_NOMBRE', ''),
+            'update_ready' => PgConfiguracion::bool('LICENCIA_UPDATE_READY', false),
+            'update_last_apply_at' => (string) PgConfiguracion::valor('LICENCIA_UPDATE_ULTIMA_APLICACION_AT', ''),
+            'update_last_apply_state' => (string) PgConfiguracion::valor('LICENCIA_UPDATE_ULTIMA_APLICACION_ESTADO', ''),
+        ];
+    }
+
+    public function isConfigured(): bool
+    {
+        $cfg = $this->defaults();
+        return $cfg['server_url'] !== '' && $cfg['license_key'] !== '' && $cfg['product_code'] !== '';
+    }
+
+    public function shouldBlockWithoutConfig(): bool
+    {
+        return $this->defaults()['block_without_config'];
+    }
+
+    public function shouldValidateNow(): bool
+    {
+        $last = trim((string) PgConfiguracion::valor('LICENCIA_ULTIMA_VALIDACION_AT', ''));
+        if ($last === '') {
+            return true;
+        }
+        try {
+            $minutes = $this->defaults()['validate_minutes'];
+            return Carbon::parse($last)->diffInMinutes(now()) >= $minutes;
+        } catch (\Throwable $e) {
+            return true;
+        }
+    }
+
+    public function suggestInstallationId(): string
+    {
+        return 'INST-' . strtoupper(substr(hash('sha256', $this->hardwareFingerprint() . '|' . base_path()), 0, 12));
+    }
+
+    public function guessDomain(?Request $request = null): string
+    {
+        $configured = trim((string) PgConfiguracion::valor('LICENCIA_DOMINIO', ''));
+        if ($configured !== '') {
+            return $configured;
+        }
+        if ($request && $request->getHost()) {
+            $path = trim((string) $request->getBasePath(), '/');
+            return $path !== '' ? ($request->getHost() . '/' . $path) : $request->getHost();
+        }
+        $host = parse_url((string) config('app.url'), PHP_URL_HOST) ?: gethostname();
+        $path = trim((string) parse_url((string) config('app.url'), PHP_URL_PATH), '/');
+        return $path !== '' ? ($host . '/' . $path) : (string) $host;
+    }
+
+    public function hardwareFingerprint(): string
+    {
+        $pieces = [
+            php_uname('n'),
+            php_uname('m'),
+            php_uname('s'),
+            gethostname(),
+            PHP_OS_FAMILY,
+            (string) config('database.connections.mysql.database', ''),
+            $this->readMachineId(),
+            implode('|', $this->networkIdentifiers()),
+        ];
+
+        return hash('sha256', implode('|', array_filter(array_map('strval', $pieces))));
+    }
+
+    public function cloneFingerprint(): string
+    {
+        $pieces = [
+            $this->hardwareFingerprint(),
+            base_path(),
+            (string) config('app.key'),
+            (string) config('database.default'),
+            (string) config('database.connections.mysql.database', ''),
+        ];
+
+        return hash('sha256', implode('|', $pieces));
+    }
+
+    protected function readMachineId(): string
+    {
+        foreach ([
+            '/etc/machine-id',
+            '/var/lib/dbus/machine-id',
+            '/sys/class/dmi/id/product_uuid',
+        ] as $file) {
+            if (is_readable($file)) {
+                $value = trim((string) @file_get_contents($file));
+                if ($value !== '') {
+                    return $value;
+                }
+            }
+        }
+
+        $cmds = [
+            'wmic csproduct get uuid 2>NUL',
+            'getmac 2>NUL',
+            'ipconfig /all 2>NUL',
+            'ip link 2>/dev/null',
+            'ifconfig -a 2>/dev/null',
+        ];
+        foreach ($cmds as $cmd) {
+            $out = @shell_exec($cmd);
+            if (is_string($out) && trim($out) !== '') {
+                return trim($out);
+            }
+        }
+
+        return (string) gethostname();
+    }
+
+    protected function networkIdentifiers(): array
+    {
+        $out = [];
+        foreach (['getmac 2>NUL', 'ipconfig /all 2>NUL', 'ip link 2>/dev/null', 'ifconfig -a 2>/dev/null'] as $cmd) {
+            $raw = @shell_exec($cmd);
+            if (!is_string($raw) || trim($raw) === '') {
+                continue;
+            }
+            if (preg_match_all('/([0-9A-F]{2}[:-]){5}[0-9A-F]{2}/i', $raw, $m)) {
+                $out = array_merge($out, $m[0]);
+            }
+        }
+        $out = array_map(fn ($v) => strtoupper(str_replace('-', ':', trim((string) $v))), $out);
+        $out = array_values(array_unique(array_filter($out)));
+        sort($out);
+        return $out;
+    }
+
+    public function validateLicense(bool $force = false, ?Request $request = null): array
+    {
+        $this->ensureSeeded();
+        if (!$this->isConfigured()) {
+            $result = [
+                'ok' => false,
+                'status' => 'not_configured',
+                'message' => 'Falta configurar el servidor, la clave o el producto de la licencia.',
+                'http_code' => 422,
+            ];
+            $this->persistResult($result);
+            return $result;
+        }
+
+        if (!$force && !$this->shouldValidateNow()) {
+            return $this->currentStatus();
+        }
+
+        $payload = $this->buildPayload($request);
+        $cfg = $this->defaults();
+        $url = rtrim($cfg['server_url'], '/') . '/api/v1/licencias/validar';
+
+        try {
+            $response = Http::timeout($cfg['timeout_seconds'])
+                ->acceptJson()
+                ->asJson()
+                ->post($url, $payload);
+
+            $json = $response->json() ?: [];
+            $json['http_code'] = $response->status();
+
+            if (($json['ok'] ?? false) === true && !$this->verifySignature($json, $payload)) {
+                $json = [
+                    'ok' => false,
+                    'status' => 'rsa_invalid',
+                    'message' => 'La firma RSA del servidor no es válida.',
+                    'http_code' => 422,
+                ];
+            }
+
+            if (($json['ok'] ?? false) === true) {
+                $cloneCheck = $this->checkCloneProtection();
+                if (!$cloneCheck['ok']) {
+                    $json = array_merge($cloneCheck, ['http_code' => 422]);
+                }
+            }
+
+            if (($json['ok'] ?? false) === true && (($json['activation_registered'] ?? true) === false) && $cfg['auto_activate']) {
+                $activation = $this->activateInstallation($request, true);
+                if (($activation['ok'] ?? false) === true) {
+                    return $this->validateLicense(true, $request);
+                }
+            }
+
+            if (($json['ok'] ?? false) === true) {
+                $this->persistSuccessfulFingerprints();
+                $this->persistResult($json, true);
+                $this->writeOfflineCache($json);
+                if ($cfg['update_auto']) {
+                    $this->checkForUpdates(false, $request);
+                }
+                return $json;
+            }
+
+            $this->persistResult($json);
+            return $json;
+        } catch (ConnectionException $e) {
+            return $this->resolveOfflineGrace('No se pudo conectar al servidor de licencias.');
+        } catch (\Throwable $e) {
+            Log::warning('License validation failed', ['exception' => $e->getMessage()]);
+            return $this->resolveOfflineGrace('No se pudo validar la licencia en este momento.');
+        }
+    }
+
+    public function activateInstallation(?Request $request = null, bool $internal = false): array
+    {
+        $this->ensureSeeded();
+        if (!$this->isConfigured()) {
+            return ['ok' => false, 'status' => 'not_configured', 'message' => 'Falta configurar la licencia.', 'http_code' => 422];
+        }
+
+        $payload = $this->buildPayload($request);
+        $url = rtrim($this->defaults()['server_url'], '/') . '/api/v1/licencias/activar';
+        try {
+            $response = Http::timeout($this->defaults()['timeout_seconds'])->acceptJson()->asJson()->post($url, $payload);
+            $json = $response->json() ?: [];
+            $json['http_code'] = $response->status();
+            if (($json['ok'] ?? false) === true) {
+                PgConfiguracion::setValor('LICENCIA_ACTIVADA', 'S', 'booleano', 'La instalación ya fue activada correctamente', 'licencias');
+                $this->persistSuccessfulFingerprints();
+            }
+            $this->persistResult($json, ($json['ok'] ?? false) === true, !$internal);
+            return $json;
+        } catch (\Throwable $e) {
+            return ['ok' => false, 'status' => 'activation_error', 'message' => 'No se pudo activar la instalación.', 'http_code' => 500];
+        }
+    }
+
+    public function deactivateInstallation(?Request $request = null): array
+    {
+        $payload = $this->buildPayload($request);
+        $url = rtrim($this->defaults()['server_url'], '/') . '/api/v1/licencias/desactivar';
+        try {
+            $response = Http::timeout($this->defaults()['timeout_seconds'])->acceptJson()->asJson()->post($url, $payload);
+            $json = $response->json() ?: [];
+            $json['http_code'] = $response->status();
+            if (($json['ok'] ?? false) === true) {
+                PgConfiguracion::setValor('LICENCIA_ACTIVADA', 'N', 'booleano', 'La instalación ya fue activada correctamente', 'licencias');
+            }
+            $this->persistResult($json, false, true);
+            return $json;
+        } catch (\Throwable $e) {
+            return ['ok' => false, 'status' => 'deactivation_error', 'message' => 'No se pudo desactivar la instalación.', 'http_code' => 500];
+        }
+    }
+
+    public function consultStatus(?Request $request = null): array
+    {
+        if (!$this->isConfigured()) {
+            return ['ok' => false, 'status' => 'not_configured', 'message' => 'Falta configurar la licencia.', 'http_code' => 422];
+        }
+        $payload = $this->buildPayload($request);
+        $url = rtrim($this->defaults()['server_url'], '/') . '/api/v1/licencias/estado/' . urlencode($payload['license_key']);
+        try {
+            $response = Http::timeout($this->defaults()['timeout_seconds'])->acceptJson()->get($url, [
+                'product_code' => $payload['product_code'],
+                'domain' => $payload['domain'],
+                'installation_id' => $payload['installation_id'],
+                'hardware_fingerprint' => $payload['hardware_fingerprint'],
+            ]);
+            $json = $response->json() ?: [];
+            $json['http_code'] = $response->status();
+            $this->persistResult($json, ($json['ok'] ?? false) === true, true);
+            return $json;
+        } catch (\Throwable $e) {
+            return ['ok' => false, 'status' => 'status_error', 'message' => 'No se pudo consultar el estado.', 'http_code' => 500];
+        }
+    }
+
+    public function checkForUpdates(bool $force = false, ?Request $request = null): array
+    {
+        $cfg = $this->defaults();
+        if (!$this->isConfigured()) {
+            return ['ok' => false, 'status' => 'not_configured', 'message' => 'Configura la licencia antes de buscar actualizaciones.', 'http_code' => 422];
+        }
+
+        $last = trim((string) PgConfiguracion::valor('LICENCIA_UPDATE_ULTIMO_CHECK_AT', ''));
+        if (!$force && $last !== '') {
+            try {
+                if (Carbon::parse($last)->diffInMinutes(now()) < $cfg['update_check_minutes']) {
+                    return [
+                        'ok' => true,
+                        'status' => (string) PgConfiguracion::valor('LICENCIA_UPDATE_ULTIMO_ESTADO', 'cached'),
+                        'message' => (string) PgConfiguracion::valor('LICENCIA_UPDATE_ULTIMO_MENSAJE', 'Consulta de actualizaciones reciente.'),
+                        'http_code' => 200,
+                        'version' => (string) PgConfiguracion::valor('LICENCIA_UPDATE_ULTIMA_VERSION', ''),
+                        'downloaded_to' => (string) PgConfiguracion::valor('LICENCIA_UPDATE_PAQUETE_LOCAL', ''),
+                    ];
+                }
+            } catch (\Throwable $e) {
+            }
+        }
+
+        $payload = $this->buildPayload($request);
+        $url = $this->resolveUpdateUrl($payload);
+
+        try {
+            $response = Http::timeout($cfg['timeout_seconds'])->acceptJson()->get($url, [
+                'product_code' => $payload['product_code'],
+                'current_version' => $payload['version'],
+                'domain' => $payload['domain'],
+                'installation_id' => $payload['installation_id'],
+                'hardware_hash' => $payload['hardware_fingerprint'],
+                'clone_hash' => $payload['clone_fingerprint'],
+                'ip' => $payload['ip'],
+            ]);
+            $json = $response->json() ?: [];
+            $json['http_code'] = $response->status();
+
+            $available = (bool) ($json['has_update'] ?? $json['available'] ?? false);
+            $latestVersion = (string) ($json['latest_version'] ?? $json['version'] ?? '');
+            $downloadUrl = (string) ($json['download_url'] ?? '');
+            $checksum = (string) ($json['checksum_sha256'] ?? '');
+
+            PgConfiguracion::setValor('LICENCIA_UPDATE_ULTIMO_CHECK_AT', now()->toDateTimeString(), 'texto', 'Última consulta de actualizaciones', 'licencias');
+            PgConfiguracion::setValor('LICENCIA_UPDATE_ULTIMO_ESTADO', (string) ($json['status'] ?? ($json['ok'] ? 'ok' : 'error')), 'texto', 'Último estado de actualización', 'licencias');
+            PgConfiguracion::setValor('LICENCIA_UPDATE_ULTIMO_MENSAJE', (string) ($json['message'] ?? ''), 'texto', 'Último mensaje de actualización', 'licencias');
+            PgConfiguracion::setValor('LICENCIA_UPDATE_ULTIMA_VERSION', $latestVersion, 'texto', 'Última versión remota detectada', 'licencias');
+            PgConfiguracion::setValor('LICENCIA_UPDATE_DOWNLOAD_URL', $downloadUrl, 'texto', 'URL de descarga del update detectado', 'licencias');
+            PgConfiguracion::setValor('LICENCIA_UPDATE_CHECKSUM', $checksum, 'texto', 'Checksum sha256 del update remoto', 'licencias');
+
+            $downloadedTo = '';
+            if (($json['ok'] ?? false) && $available && !empty($downloadUrl) && $cfg['update_auto']) {
+                $download = $this->downloadUpdatePackage($downloadUrl, $checksum);
+                if ($download['ok'] ?? false) {
+                    $downloadedTo = (string) ($download['path'] ?? '');
+                    $json['downloaded_to'] = $downloadedTo;
+                    if ($cfg['update_auto_apply']) {
+                        $apply = $this->applyDownloadedUpdate($downloadedTo);
+                        $json['apply_result'] = $apply;
+                    }
+                }
+            }
+
+            if (($json['ok'] ?? false) && !$available) {
+                PgConfiguracion::setValor('LICENCIA_UPDATE_READY', 'N', 'booleano', 'Existe un paquete listo para aplicar', 'licencias');
+            }
+
+            if (!isset($json['message']) || trim((string) $json['message']) === '') {
+                $json['message'] = $available ? 'Hay una actualización disponible.' : 'No hay actualizaciones disponibles.';
+            }
+
+            return $json;
+        } catch (\Throwable $e) {
+            Log::warning('Update check failed', ['exception' => $e->getMessage()]);
+            return ['ok' => false, 'status' => 'update_error', 'message' => 'No se pudo consultar actualizaciones.', 'http_code' => 500];
+        }
+    }
+
+    public function downloadLatestUpdate(?Request $request = null): array
+    {
+        $check = $this->checkForUpdates(true, $request);
+        if (!($check['ok'] ?? false)) {
+            return $check;
+        }
+        if (!(bool) ($check['has_update'] ?? $check['available'] ?? false)) {
+            return ['ok' => false, 'status' => 'up_to_date', 'message' => 'No hay una actualización pendiente para descargar.', 'http_code' => 200];
+        }
+        $url = (string) ($check['download_url'] ?? PgConfiguracion::valor('LICENCIA_UPDATE_DOWNLOAD_URL', ''));
+        if ($url === '') {
+            return ['ok' => false, 'status' => 'missing_download_url', 'message' => 'El servidor no devolvió una URL de descarga.', 'http_code' => 422];
+        }
+        return $this->downloadUpdatePackage($url, (string) ($check['checksum_sha256'] ?? PgConfiguracion::valor('LICENCIA_UPDATE_CHECKSUM', '')));
+    }
+
+    public function applyDownloadedUpdate(?string $packagePath = null): array
+    {
+        $this->ensureSeeded();
+        $packagePath = $packagePath ?: trim((string) PgConfiguracion::valor('LICENCIA_UPDATE_PAQUETE_LOCAL', ''));
+        if ($packagePath === '' || !is_file($packagePath)) {
+            return $this->markUpdateApplyResult(['ok' => false, 'status' => 'package_missing', 'message' => 'No existe un paquete descargado para aplicar.', 'http_code' => 422]);
+        }
+        if (!class_exists(ZipArchive::class)) {
+            return $this->markUpdateApplyResult(['ok' => false, 'status' => 'zip_unavailable', 'message' => 'La extensión ZipArchive no está disponible en PHP.', 'http_code' => 500]);
+        }
+
+        $workDir = storage_path('app/' . self::UPDATE_DIR . '/staging/' . now()->format('Ymd_His'));
+        $zip = new ZipArchive();
+        if ($zip->open($packagePath) !== true) {
+            return $this->markUpdateApplyResult(['ok' => false, 'status' => 'zip_open_failed', 'message' => 'No se pudo abrir el paquete ZIP.', 'http_code' => 422]);
+        }
+        if (!is_dir($workDir) && !@mkdir($workDir, 0775, true) && !is_dir($workDir)) {
+            $zip->close();
+            return $this->markUpdateApplyResult(['ok' => false, 'status' => 'staging_failed', 'message' => 'No se pudo preparar el directorio temporal del update.', 'http_code' => 500]);
+        }
+        $zip->extractTo($workDir);
+        $zip->close();
+
+        $sourceRoot = $this->resolveExtractedRoot($workDir);
+        if (!is_dir($sourceRoot)) {
+            return $this->markUpdateApplyResult(['ok' => false, 'status' => 'invalid_package', 'message' => 'El paquete no contiene archivos válidos.', 'http_code' => 422]);
+        }
+
+        $backupDir = storage_path('app/' . self::UPDATE_DIR . '/backups/' . now()->format('Ymd_His'));
+        if (!is_dir($backupDir) && !@mkdir($backupDir, 0775, true) && !is_dir($backupDir)) {
+            return $this->markUpdateApplyResult(['ok' => false, 'status' => 'backup_failed', 'message' => 'No se pudo preparar el respaldo previo al update.', 'http_code' => 500]);
+        }
+
+        try {
+            $copied = $this->mirrorWithBackup($sourceRoot, base_path(), $backupDir);
+            PgConfiguracion::setValor('LICENCIA_UPDATE_ULTIMA_APLICACION_AT', now()->toDateTimeString(), 'texto', 'Fecha de la última aplicación de update', 'licencias');
+            PgConfiguracion::setValor('LICENCIA_UPDATE_ULTIMA_APLICACION_ESTADO', 'applied', 'texto', 'Resultado de la última aplicación de update', 'licencias');
+            PgConfiguracion::setValor('LICENCIA_UPDATE_ULTIMO_BACKUP', $backupDir, 'texto', 'Ruta del último backup previo a aplicar update', 'licencias');
+            PgConfiguracion::setValor('LICENCIA_UPDATE_READY', 'N', 'booleano', 'Existe un paquete listo para aplicar', 'licencias');
+            $newVersion = trim((string) PgConfiguracion::valor('LICENCIA_UPDATE_ULTIMA_VERSION', ''));
+            if ($newVersion !== '') {
+                PgConfiguracion::setValor('LICENCIA_VERSION_ACTUAL', $newVersion, 'texto', 'Versión local instalada', 'licencias');
+            }
+            return [
+                'ok' => true,
+                'status' => 'applied',
+                'message' => 'Actualización aplicada correctamente. Revisa el backup antes de continuar en producción.',
+                'http_code' => 200,
+                'copied_files' => $copied,
+                'backup_dir' => $backupDir,
+            ];
+        } catch (\Throwable $e) {
+            Log::error('Apply update failed', ['exception' => $e->getMessage()]);
+            return $this->markUpdateApplyResult(['ok' => false, 'status' => 'apply_failed', 'message' => 'No se pudo aplicar la actualización: ' . $e->getMessage(), 'http_code' => 500]);
+        }
+    }
+
+    protected function downloadUpdatePackage(string $url, string $checksum = ''): array
+    {
+        try {
+            $response = Http::timeout(max(20, $this->defaults()['timeout_seconds']))->get($url);
+            if (!$response->successful()) {
+                return ['ok' => false, 'status' => 'download_failed', 'message' => 'No se pudo descargar el paquete de actualización.', 'http_code' => $response->status()];
+            }
+            $filename = basename(parse_url($url, PHP_URL_PATH) ?: ('update_' . now()->format('Ymd_His') . '.zip'));
+            if ($filename === '' || !str_ends_with(strtolower($filename), '.zip')) {
+                $filename = 'update_' . now()->format('Ymd_His') . '.zip';
+            }
+            $path = self::UPDATE_DIR . '/' . $filename;
+            Storage::put($path, $response->body());
+            $absolute = storage_path('app/' . $path);
+            if ($checksum !== '') {
+                $local = hash_file('sha256', $absolute);
+                if (!hash_equals(strtolower($checksum), strtolower($local))) {
+                    @unlink($absolute);
+                    PgConfiguracion::setValor('LICENCIA_UPDATE_READY', 'N', 'booleano', 'Existe un paquete listo para aplicar', 'licencias');
+                    return ['ok' => false, 'status' => 'checksum_mismatch', 'message' => 'El checksum del paquete descargado no coincide.', 'http_code' => 422];
+                }
+            }
+            PgConfiguracion::setValor('LICENCIA_UPDATE_PAQUETE_LOCAL', $absolute, 'texto', 'Ruta local del último paquete descargado', 'licencias');
+            PgConfiguracion::setValor('LICENCIA_UPDATE_PAQUETE_NOMBRE', $filename, 'texto', 'Nombre del último paquete descargado', 'licencias');
+            PgConfiguracion::setValor('LICENCIA_UPDATE_READY', 'S', 'booleano', 'Existe un paquete listo para aplicar', 'licencias');
+            return ['ok' => true, 'status' => 'downloaded', 'message' => 'Paquete descargado correctamente.', 'http_code' => 200, 'path' => $absolute, 'filename' => $filename];
+        } catch (\Throwable $e) {
+            Log::warning('Update download failed', ['exception' => $e->getMessage()]);
+            return ['ok' => false, 'status' => 'download_error', 'message' => 'No se pudo descargar el update.', 'http_code' => 500];
+        }
+    }
+
+    protected function resolveUpdateUrl(array $payload): string
+    {
+        $cfg = $this->defaults();
+        $endpoint = $cfg['update_endpoint'] !== '' ? $cfg['update_endpoint'] : '/api/v1/licencias/updates/{license_key}';
+        $endpoint = str_replace('{license_key}', rawurlencode((string) $payload['license_key']), $endpoint);
+        return str_starts_with($endpoint, 'http') ? $endpoint : (rtrim($cfg['server_url'], '/') . '/' . ltrim($endpoint, '/'));
+    }
+
+    protected function resolveExtractedRoot(string $workDir): string
+    {
+        $entries = array_values(array_filter(scandir($workDir) ?: [], fn ($f) => !in_array($f, ['.', '..'], true)));
+        if (count($entries) === 1 && is_dir($workDir . DIRECTORY_SEPARATOR . $entries[0])) {
+            return $workDir . DIRECTORY_SEPARATOR . $entries[0];
+        }
+        return $workDir;
+    }
+
+    protected function mirrorWithBackup(string $sourceRoot, string $targetRoot, string $backupRoot): int
+    {
+        $count = 0;
+        $iterator = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($sourceRoot, RecursiveDirectoryIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::SELF_FIRST
+        );
+
+        foreach ($iterator as $item) {
+            $srcPath = $item->getPathname();
+            $relative = ltrim(str_replace($sourceRoot, '', $srcPath), DIRECTORY_SEPARATOR);
+            if ($relative === '' || $this->shouldSkipUpdatePath($relative)) {
+                continue;
+            }
+            $destPath = $targetRoot . DIRECTORY_SEPARATOR . $relative;
+            $backupPath = $backupRoot . DIRECTORY_SEPARATOR . $relative;
+
+            if ($item->isDir()) {
+                if (!is_dir($destPath)) {
+                    @mkdir($destPath, 0775, true);
+                }
+                continue;
+            }
+
+            if (!is_dir(dirname($destPath))) {
+                @mkdir(dirname($destPath), 0775, true);
+            }
+            if (file_exists($destPath)) {
+                if (!is_dir(dirname($backupPath))) {
+                    @mkdir(dirname($backupPath), 0775, true);
+                }
+                @copy($destPath, $backupPath);
+            }
+            if (!@copy($srcPath, $destPath)) {
+                throw new \RuntimeException('No se pudo copiar el archivo ' . $relative);
+            }
+            $count++;
+        }
+
+        return $count;
+    }
+
+    protected function shouldSkipUpdatePath(string $relative): bool
+    {
+        $relative = str_replace('\\', '/', ltrim($relative, '/'));
+        $first = explode('/', $relative)[0] ?? $relative;
+        if (in_array($relative, ['.env', 'public/.htaccess'], true)) {
+            return true;
+        }
+        if (in_array($first, ['storage', '.git', 'node_modules'], true)) {
+            return true;
+        }
+        return false;
+    }
+
+    protected function markUpdateApplyResult(array $result): array
+    {
+        PgConfiguracion::setValor('LICENCIA_UPDATE_ULTIMA_APLICACION_AT', now()->toDateTimeString(), 'texto', 'Fecha de la última aplicación de update', 'licencias');
+        PgConfiguracion::setValor('LICENCIA_UPDATE_ULTIMA_APLICACION_ESTADO', (string) ($result['status'] ?? 'error'), 'texto', 'Resultado de la última aplicación de update', 'licencias');
+        return $result;
+    }
+
+    protected function buildPayload(?Request $request = null): array
+    {
+        $cfg = $this->defaults();
+        return [
+            'license_key' => $cfg['license_key'],
+            'product_code' => $cfg['product_code'],
+            'domain' => $cfg['domain'] !== '' ? $cfg['domain'] : $this->guessDomain($request),
+            'installation_id' => $cfg['installation_id'] !== '' ? $cfg['installation_id'] : $this->suggestInstallationId(),
+            'ip' => $request ? $request->ip() : request()->ip(),
+            'version' => $cfg['current_version'],
+            'hardware_fingerprint' => $this->hardwareFingerprint(),
+            'clone_fingerprint' => $this->cloneFingerprint(),
+            'hostname' => gethostname(),
+        ];
+    }
+
+    protected function verifySignature(array $response, array $payload): bool
+    {
+        $publicKey = trim($this->defaults()['rsa_public_key']);
+        if ($publicKey === '') {
+            return true;
+        }
+        $signature = (string) ($response['signature'] ?? '');
+        if ($signature === '') {
+            return false;
+        }
+        $data = (string) ($response['signed_payload'] ?? json_encode([
+            'license_key' => $response['license_key'] ?? $payload['license_key'],
+            'product_code' => $response['product_code'] ?? $payload['product_code'],
+            'client_code' => $response['client_code'] ?? '',
+            'status' => $response['status'] ?? '',
+            'expires_at' => $response['expires_at'] ?? '',
+            'domain' => $payload['domain'],
+            'installation_id' => $payload['installation_id'],
+            'hardware_fingerprint' => $payload['hardware_fingerprint'],
+        ], JSON_UNESCAPED_SLASHES));
+
+        $decoded = base64_decode($signature, true);
+        if ($decoded === false) {
+            return false;
+        }
+        if (!function_exists('openssl_verify')) {
+            return false;
+        }
+        $result = @openssl_verify($data, $decoded, $publicKey, OPENSSL_ALGO_SHA256);
+        return $result === 1;
+    }
+
+    protected function checkCloneProtection(): array
+    {
+        $cfg = $this->defaults();
+        if (!$cfg['clone_protection'] && !$cfg['hardware_lock']) {
+            return ['ok' => true];
+        }
+
+        $currentHw = $this->hardwareFingerprint();
+        $currentClone = $this->cloneFingerprint();
+        $savedHw = trim((string) PgConfiguracion::valor('LICENCIA_HARDWARE_FINGERPRINT', ''));
+        $savedClone = trim((string) PgConfiguracion::valor('LICENCIA_CLONE_FINGERPRINT', ''));
+
+        if ($cfg['hardware_lock'] && $savedHw !== '' && !hash_equals($savedHw, $currentHw)) {
+            return [
+                'ok' => false,
+                'status' => 'hardware_mismatch',
+                'message' => 'El hardware actual no coincide con el registrado para esta licencia.',
+            ];
+        }
+        if ($cfg['clone_protection'] && $savedClone !== '' && !hash_equals($savedClone, $currentClone)) {
+            return [
+                'ok' => false,
+                'status' => 'clone_detected',
+                'message' => 'Se detectó una posible clonación de la instalación.',
+            ];
+        }
+        return ['ok' => true];
+    }
+
+    protected function persistSuccessfulFingerprints(): void
+    {
+        PgConfiguracion::setValor('LICENCIA_HARDWARE_FINGERPRINT', $this->hardwareFingerprint(), 'texto', 'Huella actual del hardware', 'licencias');
+        PgConfiguracion::setValor('LICENCIA_CLONE_FINGERPRINT', $this->cloneFingerprint(), 'texto', 'Huella local anti clonación', 'licencias');
+    }
+
+    protected function resolveOfflineGrace(string $message): array
+    {
+        $lastOkAt = trim((string) PgConfiguracion::valor('LICENCIA_ULTIMA_VALIDACION_OK_AT', ''));
+        $grace = $this->defaults()['grace_hours'];
+        $cached = $this->readOfflineCache();
+
+        if ($lastOkAt !== '' && $grace > 0) {
+            try {
+                $limit = Carbon::parse($lastOkAt)->addHours($grace);
+                if (now()->lessThanOrEqualTo($limit) && $cached && ($cached['ok'] ?? false) === true) {
+                    $cloneCheck = $this->checkCloneProtection();
+                    if (!$cloneCheck['ok']) {
+                        $cloneCheck['http_code'] = 422;
+                        $this->persistResult($cloneCheck);
+                        return $cloneCheck;
+                    }
+                    PgConfiguracion::setValor('LICENCIA_ULTIMA_VALIDACION_OFFLINE_AT', now()->toDateTimeString(), 'texto', 'Última vez que se usó la caché offline', 'licencias');
+                    $cached['ok'] = true;
+                    $cached['status'] = 'offline_grace';
+                    $cached['message'] = $message . ' Se usó la caché offline dentro del período de gracia.';
+                    $cached['http_code'] = 200;
+                    $this->persistResult($cached, true);
+                    return $cached;
+                }
+            } catch (\Throwable $e) {
+            }
+        }
+
+        $result = [
+            'ok' => false,
+            'status' => 'server_unreachable',
+            'message' => $message,
+            'http_code' => 503,
+        ];
+        $this->persistResult($result);
+        return $result;
+    }
+
+    protected function currentStatus(): array
+    {
+        return [
+            'ok' => PgConfiguracion::bool('LICENCIA_ULTIMA_VALIDACION_OK', false),
+            'status' => (string) PgConfiguracion::valor('LICENCIA_ULTIMO_ESTADO', 'unknown'),
+            'message' => (string) PgConfiguracion::valor('LICENCIA_ULTIMO_MENSAJE', ''),
+            'http_code' => (int) PgConfiguracion::valor('LICENCIA_ULTIMA_RESPUESTA_CODIGO', 200),
+            'license_key' => (string) PgConfiguracion::valor('LICENCIA_CLAVE', ''),
+            'product_code' => (string) PgConfiguracion::valor('LICENCIA_PRODUCTO_CODIGO', ''),
+            'expires_at' => (string) PgConfiguracion::valor('LICENCIA_RAW_EXPIRES_AT', ''),
+        ];
+    }
+
+    protected function persistResult(array $result, bool $valid = false, bool $overwriteMessage = true): void
+    {
+        PgConfiguracion::setValor('LICENCIA_ULTIMA_VALIDACION_AT', now()->toDateTimeString(), 'texto', 'Última validación de licencia', 'licencias');
+        PgConfiguracion::setValor('LICENCIA_ULTIMA_VALIDACION_OK', $valid ? 'S' : 'N', 'booleano', 'Último resultado de validación', 'licencias');
+        if ($valid) {
+            PgConfiguracion::setValor('LICENCIA_ULTIMA_VALIDACION_OK_AT', now()->toDateTimeString(), 'texto', 'Fecha de última validación correcta', 'licencias');
+        }
+        PgConfiguracion::setValor('LICENCIA_ULTIMO_ESTADO', (string) ($result['status'] ?? ''), 'texto', 'Último estado devuelto por el servidor', 'licencias');
+        if ($overwriteMessage) {
+            PgConfiguracion::setValor('LICENCIA_ULTIMO_MENSAJE', (string) ($result['message'] ?? ''), 'texto', 'Último mensaje de licencia', 'licencias');
+        }
+        PgConfiguracion::setValor('LICENCIA_ULTIMA_RESPUESTA_CODIGO', (string) ($result['http_code'] ?? ''), 'texto', 'Último código HTTP recibido', 'licencias');
+        PgConfiguracion::setValor('LICENCIA_FIRMA', (string) ($result['signature'] ?? ''), 'texto', 'Última firma del servidor', 'licencias');
+        PgConfiguracion::setValor('LICENCIA_RAW_RESPUESTA', json_encode($result, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), 'texto', 'Última respuesta completa del servidor', 'licencias');
+        PgConfiguracion::setValor('LICENCIA_RAW_EXPIRES_AT', (string) ($result['expires_at'] ?? ''), 'texto', 'Fecha de expiración remota', 'licencias');
+        if (($result['activation_registered'] ?? null) === true) {
+            PgConfiguracion::setValor('LICENCIA_ACTIVADA', 'S', 'booleano', 'La instalación ya fue activada correctamente', 'licencias');
+        }
+    }
+
+    protected function writeOfflineCache(array $result): void
+    {
+        try {
+            Storage::put(self::CACHE_FILE, json_encode([
+                'saved_at' => now()->toDateTimeString(),
+                'data' => $result,
+            ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+        } catch (\Throwable $e) {
+        }
+    }
+
+    protected function readOfflineCache(): ?array
+    {
+        try {
+            if (!Storage::exists(self::CACHE_FILE)) {
+                return null;
+            }
+            $raw = json_decode((string) Storage::get(self::CACHE_FILE), true);
+            return is_array($raw['data'] ?? null) ? $raw['data'] : null;
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+}

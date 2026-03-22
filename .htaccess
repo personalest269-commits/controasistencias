@@ -1,0 +1,40 @@
+<IfModule mod_rewrite.c>
+    <IfModule mod_negotiation.c>
+        Options -MultiViews -Indexes
+    </IfModule>
+
+    RewriteEngine On
+
+    # ==========================================================
+    # IMPORTANT:
+    # This project is accessed like:
+    #   http://localhost/laravel122150error500final702/...
+    # but Laravel's public entrypoint and static assets live in:
+    #   /public
+    # So we rewrite everything to /public/ (without hardcoding
+    # folder names like admin_lte, assets, etc.). This prevents
+    # the UI from loading without CSS/JS/images.
+    # ==========================================================
+
+    # If the request is NOT already /public/... and the target
+    # is not an existing file/directory in the project root,
+    # rewrite it to /public/...
+    RewriteCond %{REQUEST_URI} !^/public/ [NC]
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^(.*)$ public/$1 [L]
+
+    # Handle Authorization Header
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+    # Redirect Trailing Slashes If Not A Folder...
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_URI} (.+)/$
+    RewriteRule ^ %1 [L,R=301]
+
+    # NOTE:
+    # We intentionally removed the old 'Send Requests To Front Controller'
+    # and the limited folder rewrite (css|assets|...) because they broke
+    # static loading for AdminLTE/Gentelella (e.g. /admin_lte/, /vendors/, etc.).
+</IfModule>
