@@ -93,6 +93,10 @@ class PgEventosEmpresaController extends Controller
             return response()->json(['ok' => false, 'errors' => $v->errors()], 422);
         }
 
+        if ($limite = $this->validateDailyEventLimit($request)) {
+            return $limite;
+        }
+
         $empresaIds = $this->normalizeIds($request->input('empresas', []));
         $perIds = $this->normalizeIds($request->input('personas', []));
 
@@ -150,6 +154,10 @@ class PgEventosEmpresaController extends Controller
         $v = $this->validator($request);
         if ($v->fails()) {
             return response()->json(['ok' => false, 'errors' => $v->errors()], 422);
+        }
+
+        if ($limite = $this->validateDailyEventLimit($request, $evento->id)) {
+            return $limite;
         }
 
         $empresaIds = $this->normalizeIds($request->input('empresas', []));
@@ -230,6 +238,39 @@ class PgEventosEmpresaController extends Controller
             'fecha_inicio.required' => 'La fecha inicio es obligatoria.',
             'fecha_fin.required' => 'La fecha fin es obligatoria.',
         ]);
+    }
+
+    private function validateDailyEventLimit(Request $request, ?string $excludeEventId = null)
+    {
+        $fechaInicio = PgConfiguracion::parseFecha($request->input('fecha_inicio'));
+
+        if (!$fechaInicio) {
+            $fechaInicioNormalizada = PgConfiguracion::normalizeDatetimeLocal($request->input('fecha_inicio'));
+            $fechaInicio = $fechaInicioNormalizada ? Carbon::parse($fechaInicioNormalizada) : null;
+        }
+
+        if (!$fechaInicio) {
+            return null;
+        }
+
+        $query = PgEvento::query()->whereDate('fecha_inicio', $fechaInicio->toDateString());
+
+        if ($excludeEventId) {
+            $query->where('id', '<>', $excludeEventId);
+        }
+
+        $cantidadEventos = $query->count();
+
+        if ($cantidadEventos >= 5) {
+            return response()->json([
+                'ok' => false,
+                'errors' => [
+                    'fecha_inicio' => ['Solo se pueden crear 5 eventos por día.'],
+                ],
+            ], 422);
+        }
+
+        return null;
     }
 
     private function normalizeIds($ids)

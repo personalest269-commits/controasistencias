@@ -626,7 +626,11 @@
                             if(e.titulo){ $('#titulo').addClass('is-invalid'); $('#errTitulo').text(e.titulo[0]); }
                             if(e.fecha_inicio){ $('#fechaInicio').addClass('is-invalid'); $('#errFechaInicio').text(e.fecha_inicio[0]); }
                             if(e.fecha_fin){ $('#fechaFin').addClass('is-invalid'); $('#errFechaFin').text(e.fecha_fin[0]); }
-                            $('#errGeneral').removeClass('d-none').text('Revisa los campos obligatorios.');
+                            const firstError = (e.titulo && e.titulo[0])
+                                || (e.fecha_inicio && e.fecha_inicio[0])
+                                || (e.fecha_fin && e.fecha_fin[0])
+                                || 'Revisa los campos obligatorios.';
+                            $('#errGeneral').removeClass('d-none').text(firstError);
                         } else {
                             notifyErr('Error','No se pudo guardar el evento.');
                         }

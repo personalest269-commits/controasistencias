@@ -112,11 +112,6 @@
                         </div>
                         <input type="hidden" name="auto_close" id="auto_close" value="0" />
                         <a href="{{ route('PgAsistenciasEmpresaReportes') }}" class="btn btn-warning btn-sm" id="btnReportes">Reportes</a>
-                        <button class="btn btn-primary btn-sm" type="submit" id="btnCerrarDia"
-                                name="cerrar_dia" value="1"
-                                formaction="{{ route('PgAsistenciasEmpresaCerrarDia') }}">
-                            Cerrar asistencia del día
-                        </button>
                         <button class="btn btn-success btn-sm" type="submit" id="btnActualizar">Actualizar</button>
                     </div>
                 </div>
@@ -124,7 +119,7 @@
             <div class="card-body">
                 @if(($events ?? collect())->count() === 0)
                     <div class="alert alert-warning mb-3">
-                        No existen eventos creados para la fecha seleccionada. Debe crear eventos para poder <strong>Cerrar asistencia del día</strong> y/o <strong>Actualizar</strong>.
+                        No existen eventos creados para la fecha seleccionada. Debe crear eventos para poder <strong>Actualizar</strong>.
                     </div>
                 @endif
                 <div class="table-responsive">
@@ -245,7 +240,7 @@
             }
 
             // Bloquea acciones si no hay eventos para la fecha
-            $('#btnCerrarDia, #btnActualizar').on('click', function(e){
+            $('#btnActualizar').on('click', function(e){
                 if (!hasEventos) {
                     e.preventDefault();
                     e.stopPropagation();
