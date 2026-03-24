@@ -16,6 +16,7 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class PgAsistenciasController extends Controller
 {
@@ -578,8 +579,24 @@ class PgAsistenciasController extends Controller
             return redirect()->route('PgAsistenciasEmpresaIndex', ['fecha' => $fecha, 'empresa_id' => $empresaId])
                 ->with('success', 'Asistencias actualizadas correctamente.');
         } catch (\Throwable $e) {
-            DB::rollBack();
-            return redirect()->back()->with('error', $e->getMessage());
+            $originalMessage = $e->getMessage();
+
+            try {
+                if (DB::transactionLevel() > 0) {
+                    DB::rollBack();
+                }
+            } catch (\Throwable $rollbackException) {
+                Log::warning('No se pudo hacer rollback en Actualizar asistencias.', [
+                    'original_error' => $originalMessage,
+                    'rollback_error' => $rollbackException->getMessage(),
+                ]);
+            }
+
+            if (stripos($originalMessage, 'server has gone away') !== false) {
+                DB::reconnect();
+            }
+
+            return redirect()->back()->with('error', $originalMessage);
         }
     }
 
@@ -907,6 +924,7 @@ class PgAsistenciasController extends Controller
             $targets = $this->loadEventTargets($allEventsToday->pluck('id')->all());
 
             $loteByEvento = [];
+            $idArchivoByEvento = [];
             if ($departamentoId) {
                 foreach ($deptEventFiles as $eventoId => $files) {
                     $files = is_array($files) ? $files : [$files];
@@ -954,6 +972,10 @@ class PgAsistenciasController extends Controller
                             'asistencia_lote_id' => $lote->id,
                             'id_archivo' => $idArchivo,
                         ]);
+
+                        // Mantener una referencia por evento para la estructura compacta.
+                        // Se toma la última evidencia cargada para ese evento.
+                        $idArchivoByEvento[(string) $eventoId] = (string) $idArchivo;
                     }
 
                     $loteByEvento[$eventoId] = $lote->id;
@@ -979,7 +1001,16 @@ class PgAsistenciasController extends Controller
                     $idArchivoPersona = ArchivoDigitalService::store($filePersona, 'Evidencia asistencia persona ' . $personaId);
                 }
 
-                $this->syncPackedAttendanceForPerson($personaId, $fecha, $selected, $applicable, $uid, $idArchivoPersona, $restrictToProvided);
+                $this->syncPackedAttendanceForPerson(
+                    $personaId,
+                    $fecha,
+                    $selected,
+                    $applicable,
+                    $uid,
+                    $idArchivoPersona,
+                    $restrictToProvided,
+                    $idArchivoByEvento
+                );
             }
 
             // Cerrar asistencia del día (registrar faltas) para la tabla actual
@@ -992,8 +1023,24 @@ class PgAsistenciasController extends Controller
             return redirect()->route('PgAsistenciasIndex', ['fecha' => $fecha, 'departamento_id' => $departamentoId, 'evento_id' => $eventoId])
                 ->with('success', 'Asistencias actualizadas correctamente.');
         } catch (\Throwable $e) {
-            DB::rollBack();
-            return redirect()->back()->with('error', $e->getMessage());
+            $originalMessage = $e->getMessage();
+
+            try {
+                if (DB::transactionLevel() > 0) {
+                    DB::rollBack();
+                }
+            } catch (\Throwable $rollbackException) {
+                Log::warning('No se pudo hacer rollback en Actualizar asistencias (admin).', [
+                    'original_error' => $originalMessage,
+                    'rollback_error' => $rollbackException->getMessage(),
+                ]);
+            }
+
+            if (stripos($originalMessage, 'server has gone away') !== false) {
+                DB::reconnect();
+            }
+
+            return redirect()->back()->with('error', $originalMessage);
         }
     }
 
@@ -1001,7 +1048,16 @@ class PgAsistenciasController extends Controller
      * Persiste en formato compacto (1 registro por persona+fecha) y mantiene
      * operación por evento para compatibilidad con UI.
      */
-    private function syncPackedAttendanceForPerson(string $personaId, string $fecha, array $selected, array $applicableEventIds, string $uid = '', ?string $idArchivo = null, bool $restrictToProvided = false): void
+    private function syncPackedAttendanceForPerson(
+        string $personaId,
+        string $fecha,
+        array $selected,
+        array $applicableEventIds,
+        string $uid = '',
+        ?string $idArchivo = null,
+        bool $restrictToProvided = false,
+        array $idArchivoByEvento = []
+    ): void
     {
         $selected = array_values(array_unique(array_filter(array_map('strval', $selected))));
         $selectedSet = array_fill_keys($selected, true);
@@ -1022,12 +1078,16 @@ class PgAsistenciasController extends Controller
 
         foreach ($applicableEventIds as $eventoId) {
             $estado = isset($selectedSet[$eventoId]) ? 'A' : 'F';
+            $idArchivoEvento = null;
+            if ($estado === 'A') {
+                $idArchivoEvento = $idArchivoByEvento[$eventoId] ?? $idArchivo;
+            }
             PackedAttendanceService::updatePackedAttendance(
                 $personaId,
                 $fecha,
                 (string) $eventoId,
                 $estado,
-                $estado === 'A' ? $idArchivo : null,
+                $idArchivoEvento,
                 null,
                 $uid
             );
