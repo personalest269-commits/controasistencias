@@ -169,11 +169,6 @@
                         </div>
                         <input type="hidden" name="auto_close" id="auto_close" value="0" />
                         <a href="{{ route('PgAsistenciasReportes') }}" class="btn btn-warning btn-sm" id="btnReportes">Reportes</a>
-                        <button class="btn btn-primary btn-sm" type="submit" id="btnCerrarDia"
-                                name="cerrar_dia" value="1"
-                                formaction="{{ route('PgAsistenciasCerrarDia') }}">
-                            Cerrar asistencia del día
-                        </button>
                         <button class="btn btn-success btn-sm" type="submit" id="btnActualizar">Actualizar</button>
                     </div>
                 </div>
@@ -331,7 +326,7 @@
             }
 
             // Bloquea acciones si no hay eventos para la fecha
-            $('#btnCerrarDia, #btnActualizar').on('click', function(e){
+            $('#btnActualizar').on('click', function(e){
                 if (!hasEventos) {
                     e.preventDefault();
                     e.stopPropagation();
@@ -457,8 +452,8 @@
                 $('#auto_close').val($(this).is(':checked') ? '1' : '0');
             });
 
-            // La opción recomendada para este flujo es guardar al seleccionar check/evento.
-            $('#chkAutoSave').prop('checked', true).trigger('change');
+            // Por defecto queda desmarcado; el usuario decide si activa auto-actualizar.
+            $('#chkAutoSave').prop('checked', false).trigger('change');
 
             $('.js-eventos').on('change', function(){
                 debounceSave($(this).data('persona'), true);

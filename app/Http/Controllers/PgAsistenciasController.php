@@ -253,13 +253,8 @@ class PgAsistenciasController extends Controller
             if (!empty($existing)) {
                 $selectedByPerson[$p->id] = $existing;
             } else {
-                $defaults = $departamentoId ? ($applicableEventIdsByPerson[$p->id] ?? []) : [];
-                if ($eventoId) {
-                    $defaults = array_values(array_filter($defaults, function ($eid) use ($eventoId) {
-                        return (string) $eid === (string) $eventoId;
-                    }));
-                }
-                $selectedByPerson[$p->id] = $defaults;
+                // No precargar selección por defecto; el usuario decide qué marcar.
+                $selectedByPerson[$p->id] = [];
             }
         }
 
