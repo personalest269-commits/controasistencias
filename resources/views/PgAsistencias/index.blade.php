@@ -187,6 +187,9 @@
                                 <th>EMPLEADO</th>
                                 <th>DEPARTAMENTO</th>
                                 <th style="width:120px;" class="text-center">ASISTENCIA</th>
+                                @if(empty($eventoId))
+                                    <th style="min-width:280px;">EVENTOS</th>
+                                @endif
                                 @if(!$departamentoId)
                                     <th style="width:220px;">EVIDENCIA (1 foto)</th>
                                 @endif
@@ -212,9 +215,23 @@
                                     @if(!empty($eventoId))
                                         <input type="hidden" name="person_events[{{ $p->id }}][]" class="js-eventos-hidden" data-persona="{{ $p->id }}" value="{{ $eventoId }}" />
                                     @else
-                                        @foreach(($eventsByPerson[$p->id] ?? []) as $e)
-                                            <input type="hidden" name="person_events[{{ $p->id }}][]" class="js-eventos-hidden" data-persona="{{ $p->id }}" value="{{ $e->id }}" />
-                                        @endforeach
+                                        <td>
+                                            <select name="person_events[{{ $p->id }}][]" class="form-control js-eventos" multiple data-persona="{{ $p->id }}">
+                                                @foreach(($eventsByPerson[$p->id] ?? []) as $e)
+                                                    @php
+                                                        $isSel = in_array($e->id, $sel, true);
+                                                        $badge = '';
+                                                        if (!empty($asist[$e->id]) && ($asist[$e->id]->estado_asistencia ?? null) === 'A') $badge = ' (A)';
+                                                        elseif (!empty($asist[$e->id]) && ($asist[$e->id]->estado_asistencia ?? null) === 'F') $badge = ' (F)';
+                                                        elseif (!empty($just[$e->id])) $badge = ' (JUSTIFICÓ)';
+                                                    @endphp
+                                                    <option value="{{ $e->id }}" {{ $isSel ? 'selected' : '' }}>{{ $e->titulo }}{{ $badge }}</option>
+                                                @endforeach
+                                            </select>
+                                            @if(empty($eventsByPerson[$p->id] ?? []))
+                                                <small class="text-muted">Sin eventos para esta fecha.</small>
+                                            @endif
+                                        </td>
                                     @endif
                                     @if(!$departamentoId)
                                         <td>
@@ -225,7 +242,7 @@
                                 </tr>
                             @empty
                                 @php
-                                    $cols = 4 + (!$departamentoId ? 1 : 0);
+                                    $cols = 4 + (empty($eventoId) ? 1 : 0) + (!$departamentoId ? 1 : 0);
                                 @endphp
                                 <tr><td colspan="{{ $cols }}" class="text-muted">No hay empleados para el filtro.</td></tr>
                             @endforelse
@@ -290,6 +307,13 @@
                 }
             });
 
+            $('.js-eventos').select2({
+                width:'100%',
+                language:'es',
+                placeholder: 'Seleccione eventos del día',
+                closeOnSelect: false
+            });
+
             function noEventosMsg(){
                 alert('No existen eventos creados para la fecha seleccionada. Debe crear eventos para continuar.');
             }
@@ -315,7 +339,19 @@
             $('.js-tgl').on('change', function(){
                 var pid = $(this).data('persona');
                 var $hidden = $('.js-eventos-hidden[data-persona="'+pid+'"]');
-                $hidden.prop('disabled', !$(this).is(':checked'));
+                var $sel = $('.js-eventos[data-persona="'+pid+'"]');
+
+                if ($hidden.length) {
+                    $hidden.prop('disabled', !$(this).is(':checked'));
+                } else if ($sel.length) {
+                    if ($(this).is(':checked')) {
+                        $sel.find('option').prop('selected', true);
+                    } else {
+                        $sel.val(null);
+                    }
+                    $sel.trigger('change');
+                }
+
                 debounceSave(pid, true);
             });
 
@@ -368,10 +404,14 @@
             // Auto-actualizar: guarda por persona cuando cambia selección (sin evidencias)
             function savePersona(pid){
                 var $hidden = $('.js-eventos-hidden[data-persona="'+pid+'"]');
-                var eventos = [];
-                $hidden.each(function(){
-                    if (!$(this).prop('disabled')) eventos.push($(this).val());
-                });
+                var $sel = $('.js-eventos[data-persona="'+pid+'"]').first();
+                var eventos = $sel.length ? ($sel.val() || []) : [];
+                if ($hidden.length) {
+                    eventos = [];
+                    $hidden.each(function(){
+                        if (!$(this).prop('disabled')) eventos.push($(this).val());
+                    });
+                }
                 return $.ajax({
                     method: 'POST',
                     url: '{{ route('PgAsistenciasActualizarItem') }}',
@@ -411,7 +451,7 @@
                 var isChecked = $('.js-tgl[data-persona="'+pid+'"]').is(':checked');
                 $(this).prop('disabled', !isChecked);
             });
-            $('.js-tgl').on('change', function(){
+            $('.js-eventos').on('change', function(){
                 debounceSave($(this).data('persona'), true);
             });
 
