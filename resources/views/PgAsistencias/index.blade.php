@@ -50,7 +50,7 @@
         <div class="alert alert-danger">{{ session('error') }}</div>
     @endif
 
-    <form method="GET" action="{{ route('PgAsistenciasIndex') }}">
+    <form method="GET" action="{{ route('PgAsistenciasIndex') }}" id="filterForm">
         <div class="pg-filter mb-3">
             <div class="row align-items-end">
                 <div class="col-md-3">
@@ -98,8 +98,8 @@
                 </small>
                 <br>
                 <small class="text-muted">
-                    <i class="fas fa-calendar-day"></i>
-                    El combo de <strong>EVENTOS</strong> muestra los eventos de la fecha seleccionada (hoy por defecto) y se actualiza automáticamente al crear nuevos eventos para ese día.
+                    <i class="fas fa-filter"></i>
+                    Al cambiar un filtro (fecha, departamento, persona o evento), el listado se actualiza automáticamente.
                 </small>
 				  
             </div>
@@ -187,9 +187,6 @@
                                 <th>EMPLEADO</th>
                                 <th>DEPARTAMENTO</th>
                                 <th style="width:120px;" class="text-center">ASISTENCIA</th>
-                                @if(empty($eventoId))
-                                    <th style="min-width:280px;">EVENTOS</th>
-                                @endif
                                 @if(!$departamentoId)
                                     <th style="width:220px;">EVIDENCIA (1 foto)</th>
                                 @endif
@@ -212,28 +209,12 @@
                                     <td class="text-center">
                                         <input type="checkbox" class="js-tgl" data-persona="{{ $p->id }}" {{ !empty($sel) ? 'checked' : '' }} />
                                     </td>
-                                    @if(empty($eventoId))
-                                    <td>
-                                        <select name="person_events[{{ $p->id }}][]" class="form-control js-eventos" multiple data-persona="{{ $p->id }}">
-                                            @foreach(($eventsByPerson[$p->id] ?? []) as $e)
-                                                @php
-                                                    $isSel = in_array($e->id, $sel, true);
-                                                    $badge = '';
-                                                    $isLocked = false;
-                                                    if (!empty($asist[$e->id]) && ($asist[$e->id]->estado_asistencia ?? null) === 'A') $badge = ' (A)';
-                                                    elseif (!empty($asist[$e->id]) && ($asist[$e->id]->estado_asistencia ?? null) === 'F') $badge = ' (F)';
-                                                    elseif (!empty($just[$e->id])) $badge = ' (JUSTIFICÓ)';
-                                                    if ($badge !== '') $isLocked = true;
-                                                @endphp
-                                                <option value="{{ $e->id }}" {{ $isSel ? 'selected' : '' }} data-locked="{{ $isLocked ? '1' : '0' }}">{{ $e->titulo }}{{ $badge }}</option>
-                                            @endforeach
-                                        </select>
-                                        @if(empty($eventsByPerson[$p->id] ?? []))
-                                            <small class="text-muted">Sin eventos para esta fecha.</small>
-                                        @endif
-                                    </td>
-                                    @else
+                                    @if(!empty($eventoId))
                                         <input type="hidden" name="person_events[{{ $p->id }}][]" class="js-eventos-hidden" data-persona="{{ $p->id }}" value="{{ $eventoId }}" />
+                                    @else
+                                        @foreach(($eventsByPerson[$p->id] ?? []) as $e)
+                                            <input type="hidden" name="person_events[{{ $p->id }}][]" class="js-eventos-hidden" data-persona="{{ $p->id }}" value="{{ $e->id }}" />
+                                        @endforeach
                                     @endif
                                     @if(!$departamentoId)
                                         <td>
@@ -244,7 +225,7 @@
                                 </tr>
                             @empty
                                 @php
-                                    $cols = 4 + (empty($eventoId) ? 1 : 0) + (!$departamentoId ? 1 : 0);
+                                    $cols = 4 + (!$departamentoId ? 1 : 0);
                                 @endphp
                                 <tr><td colspan="{{ $cols }}" class="text-muted">No hay empleados para el filtro.</td></tr>
                             @endforelse
@@ -274,7 +255,10 @@
                     dateFormat: 'Y-m-d',
                     altInput: true,
                     altFormat: 'd/m/Y',
-                    allowInput: true
+                    allowInput: true,
+                    onClose: function() {
+                        $('#filterForm').trigger('submit');
+                    }
                 });
             }
 
@@ -306,21 +290,6 @@
                 }
             });
 
-            $('.js-eventos').select2({
-                width:'100%',
-                language:'es',
-                placeholder: 'Seleccione eventos del día',
-                closeOnSelect: false
-            });
-            if ($('#general_events').length) {
-                $('#general_events').select2({
-                    width:'100%',
-                    language:'es',
-                    placeholder: 'Eventos (modo general)',
-                    closeOnSelect: false
-                });
-            }
-
             function noEventosMsg(){
                 alert('No existen eventos creados para la fecha seleccionada. Debe crear eventos para continuar.');
             }
@@ -345,26 +314,9 @@
 
             $('.js-tgl').on('change', function(){
                 var pid = $(this).data('persona');
-                var $sel = $('.js-eventos[data-persona="'+pid+'"]');
                 var $hidden = $('.js-eventos-hidden[data-persona="'+pid+'"]');
-
-                if ($hidden.length) {
-                    if ($(this).is(':checked')) {
-                        $hidden.prop('disabled', false);
-                    } else {
-                        $hidden.prop('disabled', true);
-                    }
-                    debounceSave(pid, true);
-                    return;
-                }
-
-                if ($(this).is(':checked')) {
-                    // seleccionar todo
-                    $sel.find('option').prop('selected', true);
-                } else {
-                    $sel.val(null);
-                }
-                $sel.trigger('change');
+                $hidden.prop('disabled', !$(this).is(':checked'));
+                debounceSave(pid, true);
             });
 
             // Marcar general (selecciona todo/limpia en todas las filas)
@@ -415,12 +367,11 @@
 
             // Auto-actualizar: guarda por persona cuando cambia selección (sin evidencias)
             function savePersona(pid){
-                var $sel = $('.js-eventos[data-persona="'+pid+'"]').first();
-                var $hidden = $('.js-eventos-hidden[data-persona="'+pid+'"]').first();
-                var eventos = $sel.length ? ($sel.val() || []) : [];
-                if ($hidden.length) {
-                    eventos = $hidden.prop('disabled') ? [] : [$hidden.val()];
-                }
+                var $hidden = $('.js-eventos-hidden[data-persona="'+pid+'"]');
+                var eventos = [];
+                $hidden.each(function(){
+                    if (!$(this).prop('disabled')) eventos.push($(this).val());
+                });
                 return $.ajax({
                     method: 'POST',
                     url: '{{ route('PgAsistenciasActualizarItem') }}',
@@ -455,9 +406,6 @@
             // Por defecto queda desmarcado; el usuario decide si activa auto-actualizar.
             $('#chkAutoSave').prop('checked', false).trigger('change');
 
-            $('.js-eventos').on('change', function(){
-                debounceSave($(this).data('persona'), true);
-            });
             $('.js-eventos-hidden').each(function(){
                 var pid = $(this).data('persona');
                 var isChecked = $('.js-tgl[data-persona="'+pid+'"]').is(':checked');
@@ -465,6 +413,14 @@
             });
             $('.js-tgl').on('change', function(){
                 debounceSave($(this).data('persona'), true);
+            });
+
+            // Auto-filtrar al cambiar filtros principales
+            $('#departamento_id, #evento_id').on('change', function(){
+                $('#filterForm').trigger('submit');
+            });
+            $('#persona_id').on('select2:select select2:clear', function(){
+                $('#filterForm').trigger('submit');
             });
         });
     </script>
