@@ -209,11 +209,13 @@
                                                 @php
                                                     $isSel = in_array($e->id, $sel, true);
                                                     $badge = '';
+                                                    $isLocked = false;
                                                     if (!empty($asist[$e->id]) && ($asist[$e->id]->estado_asistencia ?? null) === 'A') $badge = ' (A)';
                                                     elseif (!empty($asist[$e->id]) && ($asist[$e->id]->estado_asistencia ?? null) === 'F') $badge = ' (F)';
                                                     elseif (!empty($just[$e->id])) $badge = ' (JUSTIFICÓ)';
+                                                    if ($badge !== '') $isLocked = true;
                                                 @endphp
-                                                <option value="{{ $e->id }}" {{ $isSel ? 'selected' : '' }}>{{ $e->titulo }}{{ $badge }}</option>
+                                                <option value="{{ $e->id }}" {{ $isSel ? 'selected' : '' }} data-locked="{{ $isLocked ? '1' : '0' }}">{{ $e->titulo }}{{ $badge }}</option>
                                             @endforeach
                                         </select>
                                         @if(empty($eventsByPerson[$p->id] ?? []))
@@ -358,14 +360,20 @@
 
                     // Agregar los eventos seleccionados en modo general que existan en esta fila
                     selectedGeneral.forEach(function(eid){
-                        if ($rowSelect.find('option[value="'+eid+'"]').length && current.indexOf(eid) === -1) {
+                        var $opt = $rowSelect.find('option[value="'+eid+'"]');
+                        var isLocked = String($opt.data('locked')) === '1';
+                        if ($opt.length && !isLocked && current.indexOf(eid) === -1) {
                             current.push(eid);
                         }
                     });
 
                     // Quitar los eventos removidos en modo general
                     removedGeneral.forEach(function(eid){
-                        current = current.filter(function(v){ return String(v) !== String(eid); });
+                        var $opt = $rowSelect.find('option[value="'+eid+'"]');
+                        var isLocked = String($opt.data('locked')) === '1';
+                        if (!isLocked) {
+                            current = current.filter(function(v){ return String(v) !== String(eid); });
+                        }
                     });
 
                     $rowSelect.val(current).trigger('change');
