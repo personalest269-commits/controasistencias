@@ -20,6 +20,7 @@ FOR EACH ROW
 BEGIN
     DECLARE v_fecha DATE;
     DECLARE v_fecha_fin DATE;
+    DECLARE v_evento_id VARCHAR(10);
     DECLARE v_persona_id VARCHAR(10);
     DECLARE v_valor BIGINT;
     DECLARE v_personas_json LONGTEXT;
@@ -67,10 +68,11 @@ BEGIN
             SET v_todos = 1;
         END IF;
 
+        SET v_evento_id = NULLIF(TRIM(NEW.id), '');
         SET v_fecha = DATE(NEW.fecha_inicio);
         SET v_fecha_fin = DATE(NEW.fecha_fin);
 
-        WHILE v_fecha <= v_fecha_fin DO
+        WHILE v_evento_id IS NOT NULL AND v_fecha <= v_fecha_fin DO
             SET done = 0;
             OPEN cur_personas;
 
@@ -80,20 +82,15 @@ BEGIN
                     LEAVE personas_loop;
                 END IF;
 
-                SET v_row_id = NULL;
-                SET v_eventos = NULL;
-                SET v_archivos = NULL;
-                SET v_estados = NULL;
-                SET v_observaciones = NULL;
-
-                SELECT pae.id, pae.evento_id, pae.id_archivo, pae.estado_asistencia, pae.observacion
-                  INTO v_row_id, v_eventos, v_archivos, v_estados, v_observaciones
-                  FROM pg_asistencia_evento pae
-                 WHERE pae.persona_id = v_persona_id
-                   AND pae.fecha = v_fecha
-                   AND (pae.estado IS NULL OR pae.estado <> 'X')
-                 ORDER BY pae.created_at ASC
-                 LIMIT 1;
+                SET v_row_id = (
+                    SELECT pae.id
+                      FROM pg_asistencia_evento pae
+                     WHERE pae.persona_id = v_persona_id
+                       AND pae.fecha = v_fecha
+                       AND (pae.estado IS NULL OR pae.estado <> 'X')
+                     ORDER BY pae.created_at ASC
+                     LIMIT 1
+                );
 
                 IF v_row_id IS NULL THEN
                     CALL sp_f_ultimo('PG_ASISTENCIA_EVENTO', NULL, NULL, v_valor);
@@ -103,7 +100,7 @@ BEGIN
                         estado_asistencia, observacion, estado, created_at, updated_at
                     ) VALUES (
                         LPAD(v_valor, 10, '0'),
-                        JSON_ARRAY(NEW.id),
+                        JSON_ARRAY(v_evento_id),
                         v_persona_id,
                         v_fecha,
                         JSON_ARRAY(''),
@@ -115,6 +112,12 @@ BEGIN
                         NOW()
                     );
                 ELSE
+                    SELECT pae.evento_id, pae.id_archivo, pae.estado_asistencia, pae.observacion
+                      INTO v_eventos, v_archivos, v_estados, v_observaciones
+                      FROM pg_asistencia_evento pae
+                     WHERE pae.id = v_row_id
+                     LIMIT 1;
+
                     SET v_eventos = COALESCE(NULLIF(TRIM(v_eventos), ''), '[]');
                     SET v_archivos = COALESCE(NULLIF(TRIM(v_archivos), ''), '[]');
                     SET v_estados = COALESCE(NULLIF(TRIM(v_estados), ''), '[]');
@@ -125,8 +128,8 @@ BEGIN
                     IF JSON_VALID(v_estados) = 0 THEN SET v_estados = '[]'; END IF;
                     IF JSON_VALID(v_observaciones) = 0 THEN SET v_observaciones = '[]'; END IF;
 
-                    IF JSON_CONTAINS(v_eventos, JSON_QUOTE(NEW.id), '$') = 0 THEN
-                        SET v_eventos = JSON_ARRAY_APPEND(v_eventos, '$', NEW.id);
+                    IF JSON_SEARCH(v_eventos, 'one', v_evento_id) IS NULL THEN
+                        SET v_eventos = JSON_ARRAY_APPEND(v_eventos, '$', v_evento_id);
                         SET v_archivos = JSON_ARRAY_APPEND(v_archivos, '$', '');
                         SET v_estados = JSON_ARRAY_APPEND(v_estados, '$', 'F');
                         SET v_observaciones = JSON_ARRAY_APPEND(v_observaciones, '$', 'Generado automáticamente al crear el evento');
