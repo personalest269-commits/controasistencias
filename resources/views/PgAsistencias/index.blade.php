@@ -140,6 +140,13 @@
                 <div class="d-flex align-items-center justify-content-between">
                     <strong>Listado de empleados</strong>
                     <div class="d-flex align-items-center" style="gap:8px;">
+                        <div style="min-width:320px;">
+                            <select id="general_events" class="form-control" multiple>
+                                @foreach(($events ?? collect()) as $evGeneral)
+                                    <option value="{{ $evGeneral->id }}">{{ $evGeneral->titulo }}</option>
+                                @endforeach
+                            </select>
+                        </div>
                         <div class="custom-control custom-checkbox mr-2">
                             <input type="checkbox" class="custom-control-input" id="chkGeneral">
                             <label class="custom-control-label" for="chkGeneral">Marcar general</label>
@@ -286,6 +293,12 @@
                 placeholder: 'Seleccione eventos del día',
                 closeOnSelect: false
             });
+            $('#general_events').select2({
+                width:'100%',
+                language:'es',
+                placeholder: 'Eventos (modo general)',
+                closeOnSelect: false
+            });
 
             function noEventosMsg(){
                 alert('No existen eventos creados para la fecha seleccionada. Debe crear eventos para continuar.');
@@ -327,6 +340,38 @@
                 $('.js-tgl').each(function(){
                     $(this).prop('checked', mark).trigger('change');
                 });
+            });
+
+            // Modo general de eventos:
+            // - lo seleccionado aquí se replica en cada fila (si el evento aplica a la persona)
+            // - si se quita del modo general, también se quita en cada fila
+            var lastGeneralEvents = [];
+            $('#general_events').on('change', function(){
+                var selectedGeneral = ($(this).val() || []).map(String);
+                var removedGeneral = lastGeneralEvents.filter(function(id){
+                    return selectedGeneral.indexOf(String(id)) === -1;
+                });
+
+                $('.js-eventos').each(function(){
+                    var $rowSelect = $(this);
+                    var current = ($rowSelect.val() || []).map(String);
+
+                    // Agregar los eventos seleccionados en modo general que existan en esta fila
+                    selectedGeneral.forEach(function(eid){
+                        if ($rowSelect.find('option[value="'+eid+'"]').length && current.indexOf(eid) === -1) {
+                            current.push(eid);
+                        }
+                    });
+
+                    // Quitar los eventos removidos en modo general
+                    removedGeneral.forEach(function(eid){
+                        current = current.filter(function(v){ return String(v) !== String(eid); });
+                    });
+
+                    $rowSelect.val(current).trigger('change');
+                });
+
+                lastGeneralEvents = selectedGeneral.slice();
             });
 
             // Auto-actualizar: guarda por persona cuando cambia selección (sin evidencias)
