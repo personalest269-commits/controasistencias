@@ -51,9 +51,47 @@ class PackedAttendanceService
             'observacion' => self::decodeList($row->observacion),
         ];
 
+        $packed = self::normalizePacked($packed);
         self::validatePacked($packed);
 
         return $packed;
+    }
+
+    /**
+     * Normaliza registros legacy para evitar caída por desalineación:
+     * - Si hay evento_id y las otras listas están vacías, las rellena con ''.
+     * - Si alguna lista es más corta, la completa hasta la longitud de evento_id.
+     * - Si alguna lista es más larga, la recorta a longitud de evento_id.
+     */
+    public static function normalizePacked(array $packed): array
+    {
+        $eventIds = array_values(array_map(static fn($v) => trim((string) $v), $packed['evento_id'] ?? []));
+        $lenEventos = count($eventIds);
+
+        $normalized = [
+            'evento_id' => $eventIds,
+            'id_archivo' => array_values(array_map(static fn($v) => trim((string) $v), $packed['id_archivo'] ?? [])),
+            'estado_asistencia' => array_values(array_map(static fn($v) => trim((string) $v), $packed['estado_asistencia'] ?? [])),
+            'observacion' => array_values(array_map(static fn($v) => trim((string) $v), $packed['observacion'] ?? [])),
+        ];
+
+        if ($lenEventos === 0) {
+            $normalized['id_archivo'] = [];
+            $normalized['estado_asistencia'] = [];
+            $normalized['observacion'] = [];
+            return $normalized;
+        }
+
+        foreach (['id_archivo', 'estado_asistencia', 'observacion'] as $field) {
+            $len = count($normalized[$field]);
+            if ($len < $lenEventos) {
+                $normalized[$field] = array_pad($normalized[$field], $lenEventos, '');
+            } elseif ($len > $lenEventos) {
+                $normalized[$field] = array_slice($normalized[$field], 0, $lenEventos);
+            }
+        }
+
+        return $normalized;
     }
 
     public static function validatePacked(array $packed): void
