@@ -223,14 +223,28 @@ class PgEventosController extends Controller
 
     public function Delete($id)
     {
-        $evento = PgEvento::where('id', $id)->firstOrFail();
-        $evento->delete();
+        $evento = PgEvento::conEliminados()->where('id', $id)->firstOrFail();
 
-        // También marcamos pivots como eliminados
-        DB::table('pg_evento_departamento')->where('evento_id', $evento->id)->update(['estado' => 'X', 'updated_at' => now()]);
-        DB::table('pg_evento_persona')->where('evento_id', $evento->id)->update(['estado' => 'X', 'updated_at' => now()]);
+        DB::beginTransaction();
+        try {
+            DB::table('pg_eventos')
+                ->where('id', $evento->id)
+                ->update(['estado' => 'X', 'updated_at' => now()]);
 
-        return response()->json(['ok' => true, 'message' => 'Evento eliminado.']);
+            DB::table('pg_evento_departamento')
+                ->where('evento_id', $evento->id)
+                ->update(['estado' => 'X', 'updated_at' => now()]);
+
+            DB::table('pg_evento_persona')
+                ->where('evento_id', $evento->id)
+                ->update(['estado' => 'X', 'updated_at' => now()]);
+
+            DB::commit();
+            return response()->json(['ok' => true, 'message' => 'Evento eliminado.']);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return response()->json(['ok' => false, 'message' => 'No se pudo eliminar el evento.', 'error' => $e->getMessage()], 500);
+        }
     }
 
     public function Restore($id)
