@@ -20,6 +20,7 @@ class Kernel extends ConsoleKernel
         \App\Console\Commands\CleanupPersonaStaging::class,
 
         \App\Console\Commands\PgCerrarAsistenciaDia::class,
+        \App\Console\Commands\PgMigrarAsistenciaCompacta::class,
     ];
     /**
      * Define the application's command schedule.
