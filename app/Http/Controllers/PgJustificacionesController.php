@@ -9,6 +9,7 @@ use App\Models\PgJustificacionAsistenciaArchivo;
 use App\Models\PgDepartamento;
 use App\Models\PgPersona;
 use App\Services\ArchivoDigitalService;
+use App\Services\PackedAttendanceService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -402,13 +403,6 @@ class PgJustificacionesController extends Controller
             $fechaFiltro = $this->parseFlexibleDate($q);
         }
 
-        // Tabla real del modelo: pg_eventos (no pg_evento)
-        $db = PgEvento::query()
-            ->from('pg_eventos')
-            ->where(function ($qq) {
-                $qq->whereNull('estado')->orWhere('estado', '<>', 'X');
-            });
-
         // Si no hay persona seleccionada, no devolvemos eventos (evita listar TODOS).
         // En edición, el select2 ya trae la opción seleccionada (por option temporal),
         // y al abrir/buscar se aplicará este filtro.
@@ -419,40 +413,54 @@ class PgJustificacionesController extends Controller
             ]);
         }
 
-        // Solo eventos donde la persona tiene FALTA (estado_asistencia = 'F').
-        // Si hay fecha filtro, la falta debe ser exactamente en esa fecha.
-        $db->whereExists(function ($sq) use ($personaId, $fechaFiltro) {
-            $sq->select(DB::raw(1))
-                ->from('pg_asistencia_evento as pae')
-                ->whereColumn('pae.evento_id', 'pg_eventos.id')
-                ->where('pae.persona_id', $personaId)
-                ->where('pae.estado_asistencia', 'F')
-                ->where(function ($qq) {
-                    $qq->whereNull('pae.estado')->orWhere('pae.estado', '<>', 'X');
-                });
-
-            if ($fechaFiltro) {
-                $sq->whereDate('pae.fecha', $fechaFiltro);
-            }
-        });
-
-        // Subquery: fecha de falta (la primera) por evento/persona.
-        // Esto permite autocompletar la Fecha en UI al seleccionar el evento.
-        $faltasSub = DB::table('pg_asistencia_evento as pae')
-            ->select('pae.evento_id', DB::raw('MIN(DATE(pae.fecha)) as falta_fecha'))
+        // Soporta formato compacto (evento_id/estado_asistencia en listas JSON/CSV):
+        // obtenemos primero IDs de eventos donde la persona tiene estado_asistencia='F'.
+        $asistRows = DB::table('pg_asistencia_evento as pae')
             ->where('pae.persona_id', $personaId)
-            ->where('pae.estado_asistencia', 'F')
             ->where(function ($qq) {
                 $qq->whereNull('pae.estado')->orWhere('pae.estado', '<>', 'X');
             });
         if ($fechaFiltro) {
-            $faltasSub->whereDate('pae.fecha', $fechaFiltro);
+            $asistRows->whereDate('pae.fecha', $fechaFiltro);
         }
-        $faltasSub->groupBy('pae.evento_id');
+        $asistRows = $asistRows->get(['pae.evento_id', 'pae.estado_asistencia', 'pae.fecha']);
 
-        $db->leftJoinSub($faltasSub, 'faltas', function ($join) {
-            $join->on('faltas.evento_id', '=', 'pg_eventos.id');
-        });
+        $eventoIdsConFalta = [];
+        $faltaFechaPorEvento = [];
+        foreach ($asistRows as $row) {
+            $eventos = PackedAttendanceService::decodeList((string) ($row->evento_id ?? ''));
+            $estados = PackedAttendanceService::decodeList((string) ($row->estado_asistencia ?? ''));
+            $len = min(count($eventos), count($estados));
+            $fechaRow = $row->fecha ? Carbon::parse($row->fecha)->format('Y-m-d') : null;
+
+            for ($i = 0; $i < $len; $i++) {
+                $eid = trim((string) ($eventos[$i] ?? ''));
+                $estadoAsistencia = strtoupper(trim((string) ($estados[$i] ?? '')));
+                if ($eid === '' || $estadoAsistencia !== 'F') {
+                    continue;
+                }
+                $eventoIdsConFalta[$eid] = true;
+                if ($fechaRow && !isset($faltaFechaPorEvento[$eid])) {
+                    $faltaFechaPorEvento[$eid] = $fechaRow;
+                }
+            }
+        }
+
+        // Si no hay faltas, no hay eventos para justificar.
+        if (empty($eventoIdsConFalta)) {
+            return response()->json([
+                'results' => [ ['id' => '', 'text' => '-- Seleccione --'] ],
+                'pagination' => ['more' => false],
+            ]);
+        }
+
+        // Tabla real del modelo: pg_eventos (no pg_evento)
+        $db = PgEvento::query()
+            ->from('pg_eventos')
+            ->where(function ($qq) {
+                $qq->whereNull('estado')->orWhere('estado', '<>', 'X');
+            })
+            ->whereIn('pg_eventos.id', array_keys($eventoIdsConFalta));
 
         if ($depto !== '') {
             $db->where(function ($w) use ($depto) {
@@ -502,7 +510,7 @@ class PgJustificacionesController extends Controller
         $rows = $db->orderByDesc('fecha_inicio')
             ->skip(($page - 1) * $perPage)
             ->take($perPage)
-            ->get(['pg_eventos.id', 'pg_eventos.titulo', 'pg_eventos.fecha_inicio', 'pg_eventos.fecha_fin', 'faltas.falta_fecha']);
+            ->get(['pg_eventos.id', 'pg_eventos.titulo', 'pg_eventos.fecha_inicio', 'pg_eventos.fecha_fin']);
 
         $results = [];
         if ($page === 1) {
@@ -511,7 +519,7 @@ class PgJustificacionesController extends Controller
         foreach ($rows as $e) {
             $fi = (string) $e->fecha_inicio;
             $ff = (string) $e->fecha_fin;
-            $faltaFecha = isset($e->falta_fecha) ? (string) $e->falta_fecha : '';
+            $faltaFecha = (string) ($faltaFechaPorEvento[(string) $e->id] ?? '');
             // Devolvemos inicio/fin para autocompletar la fecha al seleccionar el evento
             $results[] = [
                 'id' => (string) $e->id,
