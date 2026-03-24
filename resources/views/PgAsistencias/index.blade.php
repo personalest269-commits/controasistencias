@@ -87,6 +87,11 @@
                     <i class="fas fa-info-circle"></i>
                     Si eliges un departamento, las evidencias se cargan 1 vez por evento (máx 4 fotos). En modo general, se puede cargar 1 foto por persona.
                 </small>
+                <br>
+                <small class="text-muted">
+                    <i class="fas fa-calendar-day"></i>
+                    El combo de <strong>EVENTOS</strong> muestra los eventos de la fecha seleccionada (hoy por defecto) y se actualiza automáticamente al crear nuevos eventos para ese día.
+                </small>
 				  
             </div>
         </div>
@@ -275,7 +280,12 @@
                 }
             });
 
-            $('.js-eventos').select2({ width:'100%', language:'es' });
+            $('.js-eventos').select2({
+                width:'100%',
+                language:'es',
+                placeholder: 'Seleccione eventos del día',
+                closeOnSelect: false
+            });
 
             function noEventosMsg(){
                 alert('No existen eventos creados para la fecha seleccionada. Debe crear eventos para continuar.');
@@ -338,8 +348,8 @@
             }
 
             var saveTimer = {};
-            function debounceSave(pid){
-                if (!$('#chkAutoSave').is(':checked')) return;
+            function debounceSave(pid, force){
+                if (!force && !$('#chkAutoSave').is(':checked')) return;
                 if (saveTimer[pid]) clearTimeout(saveTimer[pid]);
                 saveTimer[pid] = setTimeout(function(){
                     savePersona(pid).fail(function(xhr){
@@ -351,13 +361,16 @@
             // Mantener hidden auto_close para el submit normal
             $('#chkAutoSave').on('change', function(){
                 $('#auto_close').val($(this).is(':checked') ? '1' : '0');
-            }).trigger('change');
+            });
+
+            // La opción recomendada para este flujo es guardar al seleccionar check/evento.
+            $('#chkAutoSave').prop('checked', true).trigger('change');
 
             $('.js-eventos').on('change', function(){
-                debounceSave($(this).data('persona'));
+                debounceSave($(this).data('persona'), true);
             });
             $('.js-tgl').on('change', function(){
-                debounceSave($(this).data('persona'));
+                debounceSave($(this).data('persona'), true);
             });
         });
     </script>
