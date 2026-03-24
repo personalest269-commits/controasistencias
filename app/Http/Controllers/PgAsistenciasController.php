@@ -16,6 +16,7 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class PgAsistenciasController extends Controller
 {
@@ -578,8 +579,24 @@ class PgAsistenciasController extends Controller
             return redirect()->route('PgAsistenciasEmpresaIndex', ['fecha' => $fecha, 'empresa_id' => $empresaId])
                 ->with('success', 'Asistencias actualizadas correctamente.');
         } catch (\Throwable $e) {
-            DB::rollBack();
-            return redirect()->back()->with('error', $e->getMessage());
+            $originalMessage = $e->getMessage();
+
+            try {
+                if (DB::transactionLevel() > 0) {
+                    DB::rollBack();
+                }
+            } catch (\Throwable $rollbackException) {
+                Log::warning('No se pudo hacer rollback en Actualizar asistencias.', [
+                    'original_error' => $originalMessage,
+                    'rollback_error' => $rollbackException->getMessage(),
+                ]);
+            }
+
+            if (stripos($originalMessage, 'server has gone away') !== false) {
+                DB::reconnect();
+            }
+
+            return redirect()->back()->with('error', $originalMessage);
         }
     }
 
@@ -992,8 +1009,24 @@ class PgAsistenciasController extends Controller
             return redirect()->route('PgAsistenciasIndex', ['fecha' => $fecha, 'departamento_id' => $departamentoId, 'evento_id' => $eventoId])
                 ->with('success', 'Asistencias actualizadas correctamente.');
         } catch (\Throwable $e) {
-            DB::rollBack();
-            return redirect()->back()->with('error', $e->getMessage());
+            $originalMessage = $e->getMessage();
+
+            try {
+                if (DB::transactionLevel() > 0) {
+                    DB::rollBack();
+                }
+            } catch (\Throwable $rollbackException) {
+                Log::warning('No se pudo hacer rollback en Actualizar asistencias (admin).', [
+                    'original_error' => $originalMessage,
+                    'rollback_error' => $rollbackException->getMessage(),
+                ]);
+            }
+
+            if (stripos($originalMessage, 'server has gone away') !== false) {
+                DB::reconnect();
+            }
+
+            return redirect()->back()->with('error', $originalMessage);
         }
     }
 
