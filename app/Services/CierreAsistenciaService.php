@@ -6,6 +6,7 @@ use App\Models\PgAsistenciaEvento;
 use App\Models\PgEvento;
 use App\Models\PgJustificacionAsistencia;
 use App\Models\PgPersona;
+use App\Services\PackedAttendanceService;
 use Illuminate\Support\Facades\DB;
 
 class CierreAsistenciaService
@@ -78,16 +79,15 @@ class CierreAsistenciaService
             $justMap[(string) $j->persona_id][(string) $j->evento_id] = true;
         }
 
-        // Asistencias existentes del día (incluye borradas lógicas para reactivar)
-        $existing = PgAsistenciaEvento::query()
+        // Asistencias compactas existentes del día por persona
+        $existingPacked = PgAsistenciaEvento::query()
             ->whereDate('fecha', $fecha)
             ->whereIn('persona_id', $personIds)
-            ->whereIn('evento_id', $eventIds)
             ->get();
 
-        $existingMap = [];
-        foreach ($existing as $a) {
-            $existingMap[(string) $a->persona_id][(string) $a->evento_id] = $a;
+        $existingPackedMap = [];
+        foreach ($existingPacked as $a) {
+            $existingPackedMap[(string) $a->persona_id] = $a;
         }
 
         $faltasNuevas = 0;
@@ -105,10 +105,18 @@ class CierreAsistenciaService
                         continue;
                     }
 
-                    $row = $existingMap[$pid][$eid] ?? null;
+                    $packedRow = $existingPackedMap[$pid] ?? null;
+                    $packed = $packedRow ? PackedAttendanceService::readPacked($packedRow) : [
+                        'evento_id' => [],
+                        'id_archivo' => [],
+                        'estado_asistencia' => [],
+                        'observacion' => [],
+                    ];
+                    $idx = array_search($eid, $packed['evento_id'], true);
+                    $currentState = $idx === false ? '' : (string) ($packed['estado_asistencia'][$idx] ?? '');
 
                     // Si asistió, no tocar
-                    if ($row && (string) $row->estado_asistencia === 'A' && ($row->estado === null || $row->estado !== 'X')) {
+                    if ($currentState === 'A' && ($packedRow->estado === null || $packedRow->estado !== 'X')) {
                         continue;
                     }
 
@@ -117,30 +125,24 @@ class CierreAsistenciaService
                         continue;
                     }
 
-                    if (!$row) {
-                        $row = new PgAsistenciaEvento();
-                        $row->evento_id = $eid;
-                        $row->persona_id = $pid;
-                        $row->fecha = $fecha;
-                        if ($uid !== '') {
-                            $row->creado_por = $uid;
-                        }
+                    if ($idx === false) {
                         $faltasNuevas++;
                     } else {
-                        // Existe pero no está como falta activa
-                        $prev = (string) ($row->estado_asistencia ?? '');
-                        $prevEstado = (string) ($row->estado ?? '');
-                        if (!($prev === 'F' && ($prevEstado === '' || $prevEstado !== 'X'))) {
+                        if ($currentState !== 'F') {
                             $faltasActualizadas++;
                         }
                     }
 
-                    $row->estado_asistencia = 'F';
-                    $row->estado = null;
-                    if ($uid !== '') {
-                        $row->actualizado_por = $uid;
-                    }
-                    $row->save();
+                    $updated = PackedAttendanceService::updatePackedAttendance(
+                        $pid,
+                        $fecha,
+                        $eid,
+                        'F',
+                        $idx === false ? null : (($packed['id_archivo'][$idx] ?? '') ?: null),
+                        $idx === false ? null : (($packed['observacion'][$idx] ?? '') ?: null),
+                        $uid
+                    );
+                    $existingPackedMap[$pid] = $updated;
                 }
             }
             DB::commit();
