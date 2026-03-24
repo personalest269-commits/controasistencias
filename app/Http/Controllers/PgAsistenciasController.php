@@ -536,6 +536,7 @@ class PgAsistenciasController extends Controller
 
         DB::beginTransaction();
         try {
+            $applicableByPerson = $this->getApplicableEventIdsByPerson($fecha, array_map('strval', array_keys($personEvents)));
             foreach ($personEvents as $personaId => $selected) {
                 $personaId = (string) $personaId;
                 $selected = array_values(array_unique(array_filter((array) $selected)));
@@ -546,7 +547,7 @@ class PgAsistenciasController extends Controller
                     $idArchivoPersona = ArchivoDigitalService::store($filePersona, 'Evidencia asistencia persona ' . $personaId);
                 }
 
-                $this->syncPackedAttendanceForPerson($personaId, $fecha, $selected, $uid, $idArchivoPersona);
+                $this->syncPackedAttendanceForPerson($personaId, $fecha, $selected, $applicableByPerson[$personaId] ?? [], $uid, $idArchivoPersona);
             }
 
             if ($autoClose || $cerrarDia) {
@@ -601,7 +602,8 @@ class PgAsistenciasController extends Controller
 
         DB::beginTransaction();
         try {
-            $this->syncPackedAttendanceForPerson($personaId, $fecha, $selected, $uid, null);
+            $applicableByPerson = $this->getApplicableEventIdsByPerson($fecha, [$personaId]);
+            $this->syncPackedAttendanceForPerson($personaId, $fecha, $selected, $applicableByPerson[$personaId] ?? [], $uid, null);
 
             if ((string) $request->input('auto_close') === '1') {
                 $this->rellenarFaltas($fecha, null, [$personaId], $uid);
@@ -794,7 +796,8 @@ class PgAsistenciasController extends Controller
 
         DB::beginTransaction();
         try {
-            $this->syncPackedAttendanceForPerson($personaId, $fecha, $selected, $uid, null);
+            $applicableByPerson = $this->getApplicableEventIdsByPerson($fecha, [$personaId]);
+            $this->syncPackedAttendanceForPerson($personaId, $fecha, $selected, $applicableByPerson[$personaId] ?? [], $uid, null);
 
             // Si viene flag auto_close=1, cerramos faltas para esta persona
             if ((string) $request->input('auto_close') === '1') {
@@ -923,6 +926,7 @@ class PgAsistenciasController extends Controller
             }
 
             // Procesar asistencias por persona
+            $applicableByPerson = $this->getApplicableEventIdsByPerson($fecha, array_map('strval', array_keys($personEvents)));
             foreach ($personEvents as $personaId => $selected) {
                 $personaId = (string) $personaId;
                 $selected = array_values(array_unique(array_filter((array) $selected)));
@@ -933,7 +937,7 @@ class PgAsistenciasController extends Controller
                     $idArchivoPersona = ArchivoDigitalService::store($filePersona, 'Evidencia asistencia persona ' . $personaId);
                 }
 
-                $this->syncPackedAttendanceForPerson($personaId, $fecha, $selected, $uid, $idArchivoPersona);
+                $this->syncPackedAttendanceForPerson($personaId, $fecha, $selected, $applicableByPerson[$personaId] ?? [], $uid, $idArchivoPersona);
             }
 
             // Cerrar asistencia del día (registrar faltas) para la tabla actual
@@ -955,10 +959,11 @@ class PgAsistenciasController extends Controller
      * Persiste en formato compacto (1 registro por persona+fecha) y mantiene
      * operación por evento para compatibilidad con UI.
      */
-    private function syncPackedAttendanceForPerson(string $personaId, string $fecha, array $selected, string $uid = '', ?string $idArchivo = null): void
+    private function syncPackedAttendanceForPerson(string $personaId, string $fecha, array $selected, array $applicableEventIds, string $uid = '', ?string $idArchivo = null): void
     {
         $selected = array_values(array_unique(array_filter(array_map('strval', $selected))));
         $selectedSet = array_fill_keys($selected, true);
+        $applicableEventIds = array_values(array_unique(array_filter(array_map('strval', $applicableEventIds))));
 
         $packedRow = PgAsistenciaEvento::query()
             ->where('persona_id', $personaId)
@@ -973,13 +978,14 @@ class PgAsistenciasController extends Controller
             }
         }
 
-        foreach ($selected as $eventoId) {
+        foreach ($applicableEventIds as $eventoId) {
+            $estado = isset($selectedSet[$eventoId]) ? 'A' : 'F';
             PackedAttendanceService::updatePackedAttendance(
                 $personaId,
                 $fecha,
                 (string) $eventoId,
-                'A',
-                $idArchivo,
+                $estado,
+                $estado === 'A' ? $idArchivo : null,
                 null,
                 $uid
             );
@@ -998,6 +1004,57 @@ class PgAsistenciasController extends Controller
                 );
             }
         }
+    }
+
+    private function getApplicableEventIdsByPerson(string $fecha, array $personaIds): array
+    {
+        $personaIds = array_values(array_unique(array_filter(array_map('strval', $personaIds))));
+        if (empty($personaIds)) {
+            return [];
+        }
+
+        $personas = PgPersona::query()
+            ->select(['id', 'departamento_id'])
+            ->whereIn('id', $personaIds)
+            ->where(function ($q) {
+                $q->whereNull('estado')->orWhere('estado', '<>', 'X');
+            })
+            ->get();
+
+        if ($personas->isEmpty()) {
+            return [];
+        }
+
+        $dayStart = $fecha . ' 00:00:00';
+        $dayEnd = $fecha . ' 23:59:59';
+        $events = PgEvento::query()
+            ->where(function ($q) {
+                $q->whereNull('estado')->orWhere('estado', '<>', 'X');
+            })
+            ->where('fecha_inicio', '<=', $dayEnd)
+            ->where('fecha_fin', '>=', $dayStart)
+            ->get(['id']);
+
+        if ($events->isEmpty()) {
+            return [];
+        }
+
+        $targets = $this->loadEventTargets($events->pluck('id')->all());
+        $out = [];
+        foreach ($personas as $p) {
+            $pid = (string) $p->id;
+            $depId = $p->departamento_id ? (string) $p->departamento_id : null;
+            $ids = [];
+            foreach ($events as $e) {
+                $eid = (string) $e->id;
+                if ($this->eventAppliesToPerson($eid, $pid, $depId, $targets)) {
+                    $ids[] = $eid;
+                }
+            }
+            $out[$pid] = $ids;
+        }
+
+        return $out;
     }
 
     private function loadEventTargets(array $eventIds): array
