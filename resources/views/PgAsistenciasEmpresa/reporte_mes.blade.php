@@ -40,18 +40,18 @@
                 <small class="text-muted">Calendario por semanas (L-D). Si el año seleccionado es el actual, solo se muestran meses hasta el mes actual.</small>
             </div>
             <div class="d-flex" style="gap:8px;">
-                <a class="btn btn-outline-secondary btn-sm" href="{{ route('PgAsistenciasReportes') }}">Volver a Reportes</a>
+                <a class="btn btn-outline-secondary btn-sm" href="{{ route('PgAsistenciasEmpresaReportes') }}">Volver a Reportes</a>
                 <a class="btn btn-outline-success btn-sm"
-                   href="{{ route('PgAsistenciasReporteMesXls', request()->all()) }}">Exportar Excel</a>
+                   href="{{ route('PgAsistenciasEmpresaReporteMesXls', request()->all()) }}">Exportar Excel</a>
                 <a class="btn btn-outline-primary btn-sm"
-                   href="{{ route('PgAsistenciasReporteMesPdf', request()->all()) }}">Exportar PDF</a>
+                   href="{{ route('PgAsistenciasEmpresaReporteMesPdf', request()->all()) }}">Exportar PDF</a>
             </div>
         </div>
     </div>
 
     <div class="card mb-3 no-print" style="border-radius:12px; border:0; box-shadow:0 10px 25px rgba(0,0,0,.06);">
         <div class="card-body">
-            <form method="GET" action="{{ route('PgAsistenciasReporteMes') }}">
+            <form method="GET" action="{{ route('PgAsistenciasEmpresaReporteMes') }}">
                 <div class="row">
                     <div class="col-md-2">
                         <label>Año</label>

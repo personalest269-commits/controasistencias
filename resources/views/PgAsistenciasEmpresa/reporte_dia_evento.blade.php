@@ -24,7 +24,7 @@
         <div class="alert alert-danger">{{ session('error') }}</div>
     @endif
 
-    <form method="GET" action="{{ route('PgAsistenciasReporteDiaEvento') }}" class="mb-3">
+    <form method="GET" action="{{ route('PgAsistenciasEmpresaReporteDiaEvento') }}" class="mb-3">
         <div class="row">
             <div class="col-md-3">
                 <label>Desde</label>
@@ -58,9 +58,9 @@
                 <button class="btn btn-primary w-100" type="submit">Filtrar</button>
             </div>
             <div class="col-md-10 d-flex align-items-end" style="gap:8px; flex-wrap:wrap;">
-                <a class="btn btn-outline-secondary btn-sm" href="{{ route('PgAsistenciasReporteDiaEventoXls', ['desde'=>$desde,'hasta'=>$hasta,'empresa_id'=>$empresaId,'persona_id'=>$personaId]) }}">Exportar XLS</a>
-                <a class="btn btn-outline-secondary btn-sm" href="{{ route('PgAsistenciasReporteDiaEventoPdf', ['desde'=>$desde,'hasta'=>$hasta,'empresa_id'=>$empresaId,'persona_id'=>$personaId]) }}">Exportar PDF</a>
-                <a class="btn btn-outline-secondary btn-sm" href="{{ route('PgAsistenciasReportes', ['desde'=>$desde,'hasta'=>$hasta,'empresa_id'=>$empresaId]) }}">Ir a Reportes (Resumen/Detalle)</a>
+                <a class="btn btn-outline-secondary btn-sm" href="{{ route('PgAsistenciasEmpresaReporteDiaEventoXls', ['desde'=>$desde,'hasta'=>$hasta,'empresa_id'=>$empresaId,'persona_id'=>$personaId]) }}">Exportar XLS</a>
+                <a class="btn btn-outline-secondary btn-sm" href="{{ route('PgAsistenciasEmpresaReporteDiaEventoPdf', ['desde'=>$desde,'hasta'=>$hasta,'empresa_id'=>$empresaId,'persona_id'=>$personaId]) }}">Exportar PDF</a>
+                <a class="btn btn-outline-secondary btn-sm" href="{{ route('PgAsistenciasEmpresaReportes', ['desde'=>$desde,'hasta'=>$hasta,'empresa_id'=>$empresaId]) }}">Ir a Reportes (Resumen/Detalle)</a>
             </div>
         </div>
     </form>

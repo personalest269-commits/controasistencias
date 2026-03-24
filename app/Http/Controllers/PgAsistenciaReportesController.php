@@ -450,8 +450,10 @@ class PgAsistenciaReportesController extends Controller
 
         $asistMap = [];
         foreach ($asistencias as $a) {
-            $k = $a->evento_id . '|' . $a->fecha->format('Y-m-d');
-            $asistMap[$a->persona_id][$k] = (string) ($a->estado_asistencia ?? '');
+            foreach ($this->expandAsistenciaEntries($a) as $entry) {
+                $k = $entry['evento_id'] . '|' . $entry['fecha'];
+                $asistMap[$entry['persona_id']][$k] = $entry['estado_asistencia'];
+            }
         }
 
         $justs = PgJustificacionAsistencia::query()
@@ -627,8 +629,10 @@ class PgAsistenciaReportesController extends Controller
 
         $asistMap = [];
         foreach ($asistencias as $a) {
-            $k = $a->evento_id . '|' . $a->fecha->format('Y-m-d');
-            $asistMap[$a->persona_id][$k] = (string) ($a->estado_asistencia ?? '');
+            foreach ($this->expandAsistenciaEntries($a) as $entry) {
+                $k = $entry['evento_id'] . '|' . $entry['fecha'];
+                $asistMap[$entry['persona_id']][$k] = $entry['estado_asistencia'];
+            }
         }
 
         $justs = PgJustificacionAsistencia::query()
@@ -781,8 +785,10 @@ class PgAsistenciaReportesController extends Controller
 
         $asistMap = [];
         foreach ($asistencias as $a) {
-            $k = $a->evento_id . '|' . $a->fecha->format('Y-m-d');
-            $asistMap[$a->persona_id][$k] = (string) ($a->estado_asistencia ?? '');
+            foreach ($this->expandAsistenciaEntries($a) as $entry) {
+                $k = $entry['evento_id'] . '|' . $entry['fecha'];
+                $asistMap[$entry['persona_id']][$k] = $entry['estado_asistencia'];
+            }
         }
 
         // Justificaciones aprobadas
@@ -944,10 +950,14 @@ class PgAsistenciaReportesController extends Controller
             ->where(function ($q) {
                 $q->whereNull('estado')->orWhere('estado', '<>', 'X');
             })
-            ->get(['evento_id', 'fecha']);
+            ->get(['persona_id', 'evento_id', 'fecha', 'estado_asistencia']);
         $asistSet = [];
         foreach ($asistencias as $a) {
-            $asistSet[$a->evento_id . '|' . $a->fecha->format('Y-m-d')] = true;
+            foreach ($this->expandAsistenciaEntries($a) as $entry) {
+                if ($entry['estado_asistencia'] === 'A') {
+                    $asistSet[$entry['evento_id'] . '|' . $entry['fecha']] = true;
+                }
+            }
         }
 
         $justs = PgJustificacionAsistencia::query()
@@ -1120,5 +1130,58 @@ class PgAsistenciaReportesController extends Controller
         }
 
         return false;
+    }
+
+    private function decodeListValue($value): array
+    {
+        if (is_array($value)) {
+            return array_values($value);
+        }
+        if ($value === null) {
+            return [];
+        }
+
+        $s = trim((string) $value);
+        if ($s === '') {
+            return [];
+        }
+        if (str_starts_with($s, '[') && str_ends_with($s, ']')) {
+            $decoded = json_decode($s, true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                return array_values($decoded);
+            }
+        }
+
+        return [$s];
+    }
+
+    private function expandAsistenciaEntries(PgAsistenciaEvento $row): array
+    {
+        $eventIds = $this->decodeListValue($row->evento_id);
+        $states = $this->decodeListValue($row->estado_asistencia);
+
+        if (empty($eventIds)) {
+            return [];
+        }
+
+        $fecha = $row->fecha instanceof Carbon ? $row->fecha->format('Y-m-d') : Carbon::parse($row->fecha)->format('Y-m-d');
+        $personaId = (string) ($row->persona_id ?? '');
+        $entries = [];
+
+        foreach ($eventIds as $idx => $eventId) {
+            $eid = trim((string) $eventId);
+            if ($eid === '') {
+                continue;
+            }
+            $state = trim((string) ($states[$idx] ?? ($states[0] ?? '')));
+            $entries[] = [
+                'persona_id' => $personaId,
+                'evento_id' => $eid,
+                'fecha' => $fecha,
+                'estado_asistencia' => $state,
+            ];
+        }
+
+        return $entries;
     }
 }
