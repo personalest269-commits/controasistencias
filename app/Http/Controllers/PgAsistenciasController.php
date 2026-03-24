@@ -11,6 +11,7 @@ use App\Models\PgEvento;
 use App\Models\PgJustificacionAsistencia;
 use App\Models\PgPersona;
 use App\Services\ArchivoDigitalService;
+use App\Services\PackedAttendanceService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -194,7 +195,7 @@ class PgAsistenciasController extends Controller
         }
 
         // Asistencias ya registradas
-        $asistencias = PgAsistenciaEvento::query()
+        $asistenciasPacked = PgAsistenciaEvento::query()
             ->whereDate('fecha', $fecha)
             ->whereIn('persona_id', $personas->pluck('id')->all())
             ->where(function ($q) {
@@ -203,6 +204,7 @@ class PgAsistenciasController extends Controller
             ->get();
 
         $asistenciaMap = [];
+        $asistencias = PackedAttendanceService::expandVirtualRows($asistenciasPacked);
         foreach ($asistencias as $a) {
             $asistenciaMap[$a->persona_id][$a->evento_id] = $a;
         }
@@ -375,7 +377,7 @@ class PgAsistenciasController extends Controller
             $applicableEventIdsByPerson[$p->id] = $ids;
         }
 
-        $asistencias = PgAsistenciaEvento::query()
+        $asistenciasPacked = PgAsistenciaEvento::query()
             ->whereDate('fecha', $fecha)
             ->whereIn('persona_id', $personas->pluck('id')->all())
             ->where(function ($q) {
@@ -384,6 +386,7 @@ class PgAsistenciasController extends Controller
             ->get();
 
         $asistenciaMap = [];
+        $asistencias = PackedAttendanceService::expandVirtualRows($asistenciasPacked);
         foreach ($asistencias as $a) {
             $asistenciaMap[$a->persona_id][$a->evento_id] = $a;
         }
@@ -543,51 +546,7 @@ class PgAsistenciasController extends Controller
                     $idArchivoPersona = ArchivoDigitalService::store($filePersona, 'Evidencia asistencia persona ' . $personaId);
                 }
 
-                $existingRows = PgAsistenciaEvento::query()
-                    ->where('persona_id', $personaId)
-                    ->whereDate('fecha', $fecha)
-                    ->where(function ($q) {
-                        $q->whereNull('estado')->orWhere('estado', '<>', 'X');
-                    })
-                    ->get();
-                $existingByEvento = $existingRows->keyBy('evento_id');
-
-                foreach ($selected as $eventoId) {
-                    $eventoId = (string) $eventoId;
-
-                    $row = $existingByEvento->get($eventoId);
-                    if (!$row) {
-                        $row = new PgAsistenciaEvento();
-                        $row->evento_id = $eventoId;
-                        $row->persona_id = $personaId;
-                        $row->fecha = $fecha;
-                        if ($uid !== '') {
-                            $row->creado_por = $uid;
-                        }
-                    }
-
-                    $row->asistencia_lote_id = null;
-                    if ($idArchivoPersona) {
-                        $row->id_archivo = $idArchivoPersona;
-                    }
-                    $row->estado_asistencia = 'A';
-                    $row->estado = null;
-                    if ($uid !== '') {
-                        $row->actualizado_por = $uid;
-                    }
-                    $row->save();
-                }
-
-                foreach ($existingByEvento as $eventoId => $row) {
-                    if (!in_array($eventoId, $selected, true)) {
-                        $row->estado_asistencia = 'F';
-                        $row->estado = null;
-                        if ($uid !== '') {
-                            $row->actualizado_por = $uid;
-                        }
-                        $row->save();
-                    }
-                }
+                $this->syncPackedAttendanceForPerson($personaId, $fecha, $selected, $uid, $idArchivoPersona);
             }
 
             if ($autoClose || $cerrarDia) {
@@ -642,47 +601,7 @@ class PgAsistenciasController extends Controller
 
         DB::beginTransaction();
         try {
-            $existingRows = PgAsistenciaEvento::query()
-                ->where('persona_id', $personaId)
-                ->whereDate('fecha', $fecha)
-                ->where(function ($q) {
-                    $q->whereNull('estado')->orWhere('estado', '<>', 'X');
-                })
-                ->get();
-            $existingByEvento = $existingRows->keyBy('evento_id');
-
-            foreach ($selected as $eventoId) {
-                $eventoId = (string) $eventoId;
-                $row = $existingByEvento->get($eventoId);
-                if (!$row) {
-                    $row = new PgAsistenciaEvento();
-                    $row->evento_id = $eventoId;
-                    $row->persona_id = $personaId;
-                    $row->fecha = $fecha;
-                    if ($uid !== '') {
-                        $row->creado_por = $uid;
-                    }
-                }
-
-                $row->asistencia_lote_id = null;
-                $row->estado_asistencia = 'A';
-                $row->estado = null;
-                if ($uid !== '') {
-                    $row->actualizado_por = $uid;
-                }
-                $row->save();
-            }
-
-            foreach ($existingByEvento as $eventoId => $row) {
-                if (!in_array($eventoId, $selected, true)) {
-                    $row->estado_asistencia = 'F';
-                    $row->estado = null;
-                    if ($uid !== '') {
-                        $row->actualizado_por = $uid;
-                    }
-                    $row->save();
-                }
-            }
+            $this->syncPackedAttendanceForPerson($personaId, $fecha, $selected, $uid, null);
 
             if ((string) $request->input('auto_close') === '1') {
                 $this->rellenarFaltas($fecha, null, [$personaId], $uid);
@@ -875,74 +794,7 @@ class PgAsistenciasController extends Controller
 
         DB::beginTransaction();
         try {
-            // Asistencias existentes del día para esta persona
-            $existingRows = PgAsistenciaEvento::query()
-                ->where('persona_id', $personaId)
-                ->whereDate('fecha', $fecha)
-                ->where(function ($q) {
-                    $q->whereNull('estado')->orWhere('estado', '<>', 'X');
-                })
-                ->get();
-            $existingByEvento = $existingRows->keyBy('evento_id');
-
-            // En modo departamento, ligar a lote existente (sin crear ni subir evidencias)
-            $loteByEvento = [];
-            if ($departamentoId && !empty($selected)) {
-                $lotes = PgAsistenciaLote::query()
-                    ->where('departamento_id', $departamentoId)
-                    ->whereDate('fecha', $fecha)
-                    ->whereIn('evento_id', $selected)
-                    ->where(function ($q) {
-                        $q->whereNull('estado')->orWhere('estado', '<>', 'X');
-                    })
-                    ->get();
-                foreach ($lotes as $l) {
-                    $loteByEvento[(string) $l->evento_id] = (string) $l->id;
-                }
-            }
-
-            // Crear/actualizar seleccionadas
-            foreach ($selected as $eventoId) {
-                $eventoId = (string) $eventoId;
-
-                $row = $existingByEvento->get($eventoId);
-                if (!$row) {
-                    $row = new PgAsistenciaEvento();
-                    $row->evento_id = $eventoId;
-                    $row->persona_id = $personaId;
-                    $row->fecha = $fecha;
-                    if ($uid !== '') {
-                        $row->creado_por = $uid;
-                    }
-                }
-
-                if ($departamentoId) {
-                    $row->asistencia_lote_id = $loteByEvento[$eventoId] ?? $row->asistencia_lote_id;
-                    $row->id_archivo = null;
-                } else {
-                    $row->asistencia_lote_id = null;
-                }
-
-                $row->estado_asistencia = 'A';
-                $row->estado = null;
-                if ($uid !== '') {
-                    $row->actualizado_por = $uid;
-                }
-                $row->save();
-            }
-
-            // Eliminar lógicamente las no seleccionadas que existían
-            foreach ($existingByEvento as $eventoId => $row) {
-                if (!in_array($eventoId, $selected, true)) {
-                    // No seleccionada => Falta (F)
-                    $row->estado_asistencia = 'F';
-                    $row->estado = null;
-                    if ($uid !== '') {
-                        $row->actualizado_por = $uid;
-                    }
-                    $row->save();
-                }
-            }
+            $this->syncPackedAttendanceForPerson($personaId, $fecha, $selected, $uid, null);
 
             // Si viene flag auto_close=1, cerramos faltas para esta persona
             if ((string) $request->input('auto_close') === '1') {
@@ -1081,61 +933,7 @@ class PgAsistenciasController extends Controller
                     $idArchivoPersona = ArchivoDigitalService::store($filePersona, 'Evidencia asistencia persona ' . $personaId);
                 }
 
-                // Asistencias existentes del día para esta persona
-                $existingRows = PgAsistenciaEvento::query()
-                    ->where('persona_id', $personaId)
-                    ->whereDate('fecha', $fecha)
-                    ->where(function ($q) {
-                        $q->whereNull('estado')->orWhere('estado', '<>', 'X');
-                    })
-                    ->get();
-                $existingByEvento = $existingRows->keyBy('evento_id');
-
-                // Crear/actualizar seleccionadas
-                foreach ($selected as $eventoId) {
-                    $eventoId = (string) $eventoId;
-
-                    $row = $existingByEvento->get($eventoId);
-                    if (!$row) {
-                        $row = new PgAsistenciaEvento();
-                        $row->evento_id = $eventoId;
-                        $row->persona_id = $personaId;
-                        $row->fecha = $fecha;
-                        if ($uid !== '') {
-                            $row->creado_por = $uid;
-                        }
-                    }
-
-                    if ($departamentoId) {
-                        $row->asistencia_lote_id = $loteByEvento[$eventoId] ?? $row->asistencia_lote_id;
-                        $row->id_archivo = null;
-                    } else {
-                        $row->asistencia_lote_id = null;
-                        if ($idArchivoPersona) {
-                            $row->id_archivo = $idArchivoPersona;
-                        }
-                    }
-
-                    $row->estado_asistencia = 'A';
-                    $row->estado = null;
-                    if ($uid !== '') {
-                        $row->actualizado_por = $uid;
-                    }
-                    $row->save();
-                }
-
-                // Eliminar lógicamente las no seleccionadas que existían
-                foreach ($existingByEvento as $eventoId => $row) {
-                    if (!in_array($eventoId, $selected, true)) {
-                        // No seleccionada => Falta (F)
-                        $row->estado_asistencia = 'F';
-                        $row->estado = null;
-                        if ($uid !== '') {
-                            $row->actualizado_por = $uid;
-                        }
-                        $row->save();
-                    }
-                }
+                $this->syncPackedAttendanceForPerson($personaId, $fecha, $selected, $uid, $idArchivoPersona);
             }
 
             // Cerrar asistencia del día (registrar faltas) para la tabla actual
@@ -1150,6 +948,55 @@ class PgAsistenciasController extends Controller
         } catch (\Throwable $e) {
             DB::rollBack();
             return redirect()->back()->with('error', $e->getMessage());
+        }
+    }
+
+    /**
+     * Persiste en formato compacto (1 registro por persona+fecha) y mantiene
+     * operación por evento para compatibilidad con UI.
+     */
+    private function syncPackedAttendanceForPerson(string $personaId, string $fecha, array $selected, string $uid = '', ?string $idArchivo = null): void
+    {
+        $selected = array_values(array_unique(array_filter(array_map('strval', $selected))));
+        $selectedSet = array_fill_keys($selected, true);
+
+        $packedRow = PgAsistenciaEvento::query()
+            ->where('persona_id', $personaId)
+            ->whereDate('fecha', $fecha)
+            ->first();
+
+        $existingEvents = [];
+        if ($packedRow) {
+            $packed = PackedAttendanceService::readPacked($packedRow);
+            foreach ($packed['evento_id'] as $eid) {
+                $existingEvents[] = (string) $eid;
+            }
+        }
+
+        foreach ($selected as $eventoId) {
+            PackedAttendanceService::updatePackedAttendance(
+                $personaId,
+                $fecha,
+                (string) $eventoId,
+                'A',
+                $idArchivo,
+                null,
+                $uid
+            );
+        }
+
+        foreach ($existingEvents as $eventoId) {
+            if (!isset($selectedSet[$eventoId])) {
+                PackedAttendanceService::updatePackedAttendance(
+                    $personaId,
+                    $fecha,
+                    $eventoId,
+                    'F',
+                    null,
+                    null,
+                    $uid
+                );
+            }
         }
     }
 
@@ -1305,16 +1152,15 @@ class PgAsistenciasController extends Controller
             $justMap[$j->persona_id][(string) $j->evento_id] = true;
         }
 
-        // Asistencias existentes del día (incluye borradas lógicas para reactivar)
-        $existing = PgAsistenciaEvento::query()
+        // Asistencias compactas existentes del día por persona
+        $existingPacked = PgAsistenciaEvento::query()
             ->whereDate('fecha', $fecha)
             ->whereIn('persona_id', $personIds)
-            ->whereIn('evento_id', $eventIds)
             ->get();
 
-        $existingMap = [];
-        foreach ($existing as $a) {
-            $existingMap[$a->persona_id][(string) $a->evento_id] = $a;
+        $existingPackedMap = [];
+        foreach ($existingPacked as $a) {
+            $existingPackedMap[$a->persona_id] = $a;
         }
 
         foreach ($personas as $p) {
@@ -1327,10 +1173,18 @@ class PgAsistenciasController extends Controller
                     continue;
                 }
 
-                $row = $existingMap[$pid][$eid] ?? null;
+                $packedRow = $existingPackedMap[$pid] ?? null;
+                $packed = $packedRow ? PackedAttendanceService::readPacked($packedRow) : [
+                    'evento_id' => [],
+                    'id_archivo' => [],
+                    'estado_asistencia' => [],
+                    'observacion' => [],
+                ];
+                $idx = array_search($eid, $packed['evento_id'], true);
+                $currentState = $idx === false ? '' : (string) ($packed['estado_asistencia'][$idx] ?? '');
 
                 // Si asistió, no tocar
-                if ($row && (string) $row->estado_asistencia === 'A' && ($row->estado === null || $row->estado !== 'X')) {
+                if ($currentState === 'A' && ($packedRow->estado === null || $packedRow->estado !== 'X')) {
                     continue;
                 }
 
@@ -1339,22 +1193,16 @@ class PgAsistenciasController extends Controller
                     continue;
                 }
 
-                if (!$row) {
-                    $row = new PgAsistenciaEvento();
-                    $row->evento_id = $eid;
-                    $row->persona_id = $pid;
-                    $row->fecha = $fecha;
-                    if ($uid !== '') {
-                        $row->creado_por = $uid;
-                    }
-                }
-
-                $row->estado_asistencia = 'F';
-                $row->estado = null;
-                if ($uid !== '') {
-                    $row->actualizado_por = $uid;
-                }
-                $row->save();
+                $updated = PackedAttendanceService::updatePackedAttendance(
+                    $pid,
+                    $fecha,
+                    $eid,
+                    'F',
+                    $idx === false ? null : (($packed['id_archivo'][$idx] ?? '') ?: null),
+                    $idx === false ? null : (($packed['observacion'][$idx] ?? '') ?: null),
+                    $uid
+                );
+                $existingPackedMap[$pid] = $updated;
             }
         }
     }
