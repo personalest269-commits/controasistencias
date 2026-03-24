@@ -72,83 +72,87 @@ BEGIN
         SET v_fecha = DATE(NEW.fecha_inicio);
         SET v_fecha_fin = DATE(NEW.fecha_fin);
 
-        WHILE v_evento_id IS NOT NULL AND v_fecha <= v_fecha_fin DO
-            SET done = 0;
-            OPEN cur_personas;
+        IF v_evento_id IS NOT NULL THEN
+            WHILE v_fecha <= v_fecha_fin DO
+                SET done = 0;
+                OPEN cur_personas;
 
-            personas_loop: LOOP
-                FETCH cur_personas INTO v_persona_id;
-                IF done = 1 THEN
-                    LEAVE personas_loop;
-                END IF;
-
-                SET v_row_id = (
-                    SELECT pae.id
-                      FROM pg_asistencia_evento pae
-                     WHERE pae.persona_id = v_persona_id
-                       AND pae.fecha = v_fecha
-                       AND (pae.estado IS NULL OR pae.estado <> 'X')
-                     ORDER BY pae.created_at ASC
-                     LIMIT 1
-                );
-
-                IF v_row_id IS NULL THEN
-                    CALL sp_f_ultimo('PG_ASISTENCIA_EVENTO', NULL, NULL, v_valor);
-
-                    INSERT INTO pg_asistencia_evento (
-                        id, evento_id, persona_id, fecha, id_archivo, asistencia_lote_id,
-                        estado_asistencia, observacion, estado, created_at, updated_at
-                    ) VALUES (
-                        LPAD(v_valor, 10, '0'),
-                        JSON_ARRAY(v_evento_id),
-                        v_persona_id,
-                        v_fecha,
-                        JSON_ARRAY(''),
-                        NULL,
-                        JSON_ARRAY('F'),
-                        JSON_ARRAY('Generado automáticamente al crear el evento'),
-                        NULL,
-                        NOW(),
-                        NOW()
-                    );
-                ELSE
-                    SELECT pae.evento_id, pae.id_archivo, pae.estado_asistencia, pae.observacion
-                      INTO v_eventos, v_archivos, v_estados, v_observaciones
-                      FROM pg_asistencia_evento pae
-                     WHERE pae.id = v_row_id
-                     LIMIT 1;
-
-                    SET v_eventos = COALESCE(NULLIF(TRIM(v_eventos), ''), '[]');
-                    SET v_archivos = COALESCE(NULLIF(TRIM(v_archivos), ''), '[]');
-                    SET v_estados = COALESCE(NULLIF(TRIM(v_estados), ''), '[]');
-                    SET v_observaciones = COALESCE(NULLIF(TRIM(v_observaciones), ''), '[]');
-
-                    IF JSON_VALID(v_eventos) = 0 THEN SET v_eventos = '[]'; END IF;
-                    IF JSON_VALID(v_archivos) = 0 THEN SET v_archivos = '[]'; END IF;
-                    IF JSON_VALID(v_estados) = 0 THEN SET v_estados = '[]'; END IF;
-                    IF JSON_VALID(v_observaciones) = 0 THEN SET v_observaciones = '[]'; END IF;
-
-                    IF JSON_SEARCH(v_eventos, 'one', v_evento_id) IS NULL THEN
-                        SET v_eventos = JSON_ARRAY_APPEND(v_eventos, '$', v_evento_id);
-                        SET v_archivos = JSON_ARRAY_APPEND(v_archivos, '$', '');
-                        SET v_estados = JSON_ARRAY_APPEND(v_estados, '$', 'F');
-                        SET v_observaciones = JSON_ARRAY_APPEND(v_observaciones, '$', 'Generado automáticamente al crear el evento');
-
-                        UPDATE pg_asistencia_evento
-                           SET evento_id = v_eventos,
-                               id_archivo = v_archivos,
-                               estado_asistencia = v_estados,
-                               observacion = v_observaciones,
-                               estado = NULL,
-                               updated_at = NOW()
-                         WHERE id = v_row_id;
+                personas_loop: LOOP
+                    FETCH cur_personas INTO v_persona_id;
+                    IF done = 1 THEN
+                        LEAVE personas_loop;
                     END IF;
-                END IF;
-            END LOOP;
 
-            CLOSE cur_personas;
-            SET v_fecha = DATE_ADD(v_fecha, INTERVAL 1 DAY);
-        END WHILE;
+                    SET v_row_id = NULL;
+                    SET v_eventos = NULL;
+                    SET v_archivos = NULL;
+                    SET v_estados = NULL;
+                    SET v_observaciones = NULL;
+
+                    BEGIN
+                        DECLARE CONTINUE HANDLER FOR NOT FOUND BEGIN END;
+                        SELECT pae.id, pae.evento_id, pae.id_archivo, pae.estado_asistencia, pae.observacion
+                          INTO v_row_id, v_eventos, v_archivos, v_estados, v_observaciones
+                          FROM pg_asistencia_evento pae
+                         WHERE pae.persona_id = v_persona_id
+                           AND pae.fecha = v_fecha
+                           AND (pae.estado IS NULL OR pae.estado <> 'X')
+                         ORDER BY pae.created_at ASC
+                         LIMIT 1;
+                    END;
+
+                    IF v_row_id IS NULL THEN
+                        CALL sp_f_ultimo('PG_ASISTENCIA_EVENTO', NULL, NULL, v_valor);
+
+                        INSERT INTO pg_asistencia_evento (
+                            id, evento_id, persona_id, fecha, id_archivo, asistencia_lote_id,
+                            estado_asistencia, observacion, estado, created_at, updated_at
+                        ) VALUES (
+                            LPAD(v_valor, 10, '0'),
+                            JSON_ARRAY(v_evento_id),
+                            v_persona_id,
+                            v_fecha,
+                            JSON_ARRAY(''),
+                            NULL,
+                            JSON_ARRAY('F'),
+                            JSON_ARRAY('Generado automáticamente al crear el evento'),
+                            NULL,
+                            NOW(),
+                            NOW()
+                        );
+                    ELSE
+                        SET v_eventos = COALESCE(NULLIF(TRIM(v_eventos), ''), '[]');
+                        SET v_archivos = COALESCE(NULLIF(TRIM(v_archivos), ''), '[]');
+                        SET v_estados = COALESCE(NULLIF(TRIM(v_estados), ''), '[]');
+                        SET v_observaciones = COALESCE(NULLIF(TRIM(v_observaciones), ''), '[]');
+
+                        IF JSON_VALID(v_eventos) = 0 THEN SET v_eventos = '[]'; END IF;
+                        IF JSON_VALID(v_archivos) = 0 THEN SET v_archivos = '[]'; END IF;
+                        IF JSON_VALID(v_estados) = 0 THEN SET v_estados = '[]'; END IF;
+                        IF JSON_VALID(v_observaciones) = 0 THEN SET v_observaciones = '[]'; END IF;
+
+                        IF JSON_SEARCH(v_eventos, 'one', v_evento_id) IS NULL THEN
+                            SET v_eventos = JSON_ARRAY_APPEND(v_eventos, '$', v_evento_id);
+                            SET v_archivos = JSON_ARRAY_APPEND(v_archivos, '$', '');
+                            SET v_estados = JSON_ARRAY_APPEND(v_estados, '$', 'F');
+                            SET v_observaciones = JSON_ARRAY_APPEND(v_observaciones, '$', 'Generado automáticamente al crear el evento');
+
+                            UPDATE pg_asistencia_evento
+                               SET evento_id = v_eventos,
+                                   id_archivo = v_archivos,
+                                   estado_asistencia = v_estados,
+                                   observacion = v_observaciones,
+                                   estado = NULL,
+                                   updated_at = NOW()
+                             WHERE id = v_row_id;
+                        END IF;
+                    END IF;
+                END LOOP;
+
+                CLOSE cur_personas;
+                SET v_fecha = DATE_ADD(v_fecha, INTERVAL 1 DAY);
+            END WHILE;
+        END IF;
     END IF;
 END
 SQL);
