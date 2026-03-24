@@ -77,7 +77,16 @@
                     </select>
                  
                 </div>
-                <div class="col-md-2 text-right">
+                <div class="col-md-2">
+                    <label class="mb-1">Evento</label>
+                    <select id="evento_id" name="evento_id" class="form-control" style="width:100%">
+                        <option value="">-- Todos --</option>
+                        @foreach(($allEventsDay ?? collect()) as $evFiltro)
+                            <option value="{{ $evFiltro->id }}" {{ (($eventoId ?? null) == $evFiltro->id) ? 'selected' : '' }}>{{ $evFiltro->titulo }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="col-md-1 text-right">
                     <button class="btn btn-primary" type="submit"><i class="fas fa-search"></i></button>
                 </div>
             </div>
@@ -101,6 +110,7 @@
         @csrf
         <input type="hidden" name="fecha" value="{{ $fecha }}" />
         <input type="hidden" name="departamento_id" value="{{ $departamentoId }}" />
+        <input type="hidden" name="evento_id" value="{{ $eventoId ?? '' }}" />
 
         @if($departamentoId)
             <div class="card pg-card mb-3">
@@ -140,13 +150,15 @@
                 <div class="d-flex align-items-center justify-content-between">
                     <strong>Listado de empleados</strong>
                     <div class="d-flex align-items-center" style="gap:8px;">
-                        <div style="min-width:320px;">
-                            <select id="general_events" class="form-control" multiple>
-                                @foreach(($events ?? collect()) as $evGeneral)
-                                    <option value="{{ $evGeneral->id }}">{{ $evGeneral->titulo }}</option>
-                                @endforeach
-                            </select>
-                        </div>
+                        @if(empty($eventoId))
+                            <div style="min-width:320px;">
+                                <select id="general_events" class="form-control" multiple>
+                                    @foreach(($events ?? collect()) as $evGeneral)
+                                        <option value="{{ $evGeneral->id }}">{{ $evGeneral->titulo }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                        @endif
                         <div class="custom-control custom-checkbox mr-2">
                             <input type="checkbox" class="custom-control-input" id="chkGeneral">
                             <label class="custom-control-label" for="chkGeneral">Marcar general</label>
@@ -180,7 +192,9 @@
                                 <th>EMPLEADO</th>
                                 <th>DEPARTAMENTO</th>
                                 <th style="width:120px;" class="text-center">ASISTENCIA</th>
-                                <th style="min-width:280px;">EVENTOS</th>
+                                @if(empty($eventoId))
+                                    <th style="min-width:280px;">EVENTOS</th>
+                                @endif
                                 @if(!$departamentoId)
                                     <th style="width:220px;">EVIDENCIA (1 foto)</th>
                                 @endif
@@ -203,6 +217,7 @@
                                     <td class="text-center">
                                         <input type="checkbox" class="js-tgl" data-persona="{{ $p->id }}" {{ !empty($sel) ? 'checked' : '' }} />
                                     </td>
+                                    @if(empty($eventoId))
                                     <td>
                                         <select name="person_events[{{ $p->id }}][]" class="form-control js-eventos" multiple data-persona="{{ $p->id }}">
                                             @foreach(($eventsByPerson[$p->id] ?? []) as $e)
@@ -222,6 +237,9 @@
                                             <small class="text-muted">Sin eventos para esta fecha.</small>
                                         @endif
                                     </td>
+                                    @else
+                                        <input type="hidden" name="person_events[{{ $p->id }}][]" class="js-eventos-hidden" data-persona="{{ $p->id }}" value="{{ $eventoId }}" />
+                                    @endif
                                     @if(!$departamentoId)
                                         <td>
                                             <input type="file" name="person_file[{{ $p->id }}]" class="form-control" accept="image/*,.pdf,.doc,.docx" />
@@ -230,7 +248,10 @@
                                     @endif
                                 </tr>
                             @empty
-                                <tr><td colspan="6" class="text-muted">No hay empleados para el filtro.</td></tr>
+                                @php
+                                    $cols = 4 + (empty($eventoId) ? 1 : 0) + (!$departamentoId ? 1 : 0);
+                                @endphp
+                                <tr><td colspan="{{ $cols }}" class="text-muted">No hay empleados para el filtro.</td></tr>
                             @endforelse
                         </tbody>
                     </table>
@@ -264,6 +285,7 @@
 
             // Departamentos con búsqueda
             $('#departamento_id').select2({ width:'100%', placeholder:'-- General (todos) --', allowClear:true, language:'es' });
+            $('#evento_id').select2({ width:'100%', placeholder:'-- Todos --', allowClear:true, language:'es' });
 
             // Persona combobox (ajax)
             $('#persona_id').select2({
@@ -295,12 +317,14 @@
                 placeholder: 'Seleccione eventos del día',
                 closeOnSelect: false
             });
-            $('#general_events').select2({
-                width:'100%',
-                language:'es',
-                placeholder: 'Eventos (modo general)',
-                closeOnSelect: false
-            });
+            if ($('#general_events').length) {
+                $('#general_events').select2({
+                    width:'100%',
+                    language:'es',
+                    placeholder: 'Eventos (modo general)',
+                    closeOnSelect: false
+                });
+            }
 
             function noEventosMsg(){
                 alert('No existen eventos creados para la fecha seleccionada. Debe crear eventos para continuar.');
@@ -327,6 +351,18 @@
             $('.js-tgl').on('change', function(){
                 var pid = $(this).data('persona');
                 var $sel = $('.js-eventos[data-persona="'+pid+'"]');
+                var $hidden = $('.js-eventos-hidden[data-persona="'+pid+'"]');
+
+                if ($hidden.length) {
+                    if ($(this).is(':checked')) {
+                        $hidden.prop('disabled', false);
+                    } else {
+                        $hidden.prop('disabled', true);
+                    }
+                    debounceSave(pid, true);
+                    return;
+                }
+
                 if ($(this).is(':checked')) {
                     // seleccionar todo
                     $sel.find('option').prop('selected', true);
@@ -385,7 +421,11 @@
             // Auto-actualizar: guarda por persona cuando cambia selección (sin evidencias)
             function savePersona(pid){
                 var $sel = $('.js-eventos[data-persona="'+pid+'"]').first();
-                var eventos = $sel.val() || [];
+                var $hidden = $('.js-eventos-hidden[data-persona="'+pid+'"]').first();
+                var eventos = $sel.length ? ($sel.val() || []) : [];
+                if ($hidden.length) {
+                    eventos = $hidden.prop('disabled') ? [] : [$hidden.val()];
+                }
                 return $.ajax({
                     method: 'POST',
                     url: '{{ route('PgAsistenciasActualizarItem') }}',
@@ -393,6 +433,7 @@
                         _token: '{{ csrf_token() }}',
                         fecha: '{{ $fecha }}',
                         departamento_id: '{{ $departamentoId }}',
+                        evento_id: '{{ $eventoId ?? '' }}',
                         persona_id: pid,
                         eventos: eventos,
                         auto_close: $('#chkAutoSave').is(':checked') ? '1' : '0'
@@ -421,6 +462,11 @@
 
             $('.js-eventos').on('change', function(){
                 debounceSave($(this).data('persona'), true);
+            });
+            $('.js-eventos-hidden').each(function(){
+                var pid = $(this).data('persona');
+                var isChecked = $('.js-tgl[data-persona="'+pid+'"]').is(':checked');
+                $(this).prop('disabled', !isChecked);
             });
             $('.js-tgl').on('change', function(){
                 debounceSave($(this).data('persona'), true);

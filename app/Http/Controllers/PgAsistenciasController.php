@@ -79,8 +79,12 @@ class PgAsistenciasController extends Controller
             $departamentoId = null;
         }
         $personaId = trim((string) $request->input('persona_id'));
+        $eventoId = trim((string) $request->input('evento_id'));
         if ($personaId === '') {
             $personaId = null;
+        }
+        if ($eventoId === '') {
+            $eventoId = null;
         }
 
         $uid = (string) (Auth::user()->id ?? '');
@@ -114,7 +118,7 @@ class PgAsistenciasController extends Controller
                 return response()->json(['ok' => true]);
             }
 
-            return redirect()->route('PgAsistenciasIndex', ['fecha' => $fecha, 'departamento_id' => $departamentoId])
+            return redirect()->route('PgAsistenciasIndex', ['fecha' => $fecha, 'departamento_id' => $departamentoId, 'evento_id' => $eventoId])
                 ->with('success', 'Asistencia del día cerrada. Faltas registradas.');
         } catch (\Throwable $e) {
             DB::rollBack();
@@ -131,11 +135,15 @@ class PgAsistenciasController extends Controller
         $departamentoId = trim((string) $request->input('departamento_id'));
         $personaQ = trim((string) $request->input('persona_q'));
         $personaId = trim((string) $request->input('persona_id'));
+        $eventoId = trim((string) $request->input('evento_id'));
         if ($departamentoId === '') {
             $departamentoId = null;
         }
         if ($personaId === '') {
             $personaId = null;
+        }
+        if ($eventoId === '') {
+            $eventoId = null;
         }
 
         $departamentos = PgDepartamento::orderBy('descripcion')->get();
@@ -164,7 +172,7 @@ class PgAsistenciasController extends Controller
         $dayStart = $fecha . ' 00:00:00';
         $dayEnd = $fecha . ' 23:59:59';
 
-        $events = PgEvento::query()
+        $allEventsDay = PgEvento::query()
             ->where(function ($q) {
                 $q->whereNull('estado')->orWhere('estado', '<>', 'X');
             })
@@ -172,6 +180,9 @@ class PgAsistenciasController extends Controller
             ->where('fecha_fin', '>=', $dayStart)
             ->orderBy('fecha_inicio')
             ->get();
+        $events = $eventoId
+            ? $allEventsDay->where('id', $eventoId)->values()
+            : $allEventsDay;
 
         $eventTargets = $this->loadEventTargets($events->pluck('id')->all());
 
@@ -234,10 +245,21 @@ class PgAsistenciasController extends Controller
                     $existing[] = (string) $eid;
                 }
             }
+            if ($eventoId) {
+                $existing = array_values(array_filter($existing, function ($eid) use ($eventoId) {
+                    return (string) $eid === (string) $eventoId;
+                }));
+            }
             if (!empty($existing)) {
                 $selectedByPerson[$p->id] = $existing;
             } else {
-                $selectedByPerson[$p->id] = $departamentoId ? ($applicableEventIdsByPerson[$p->id] ?? []) : [];
+                $defaults = $departamentoId ? ($applicableEventIdsByPerson[$p->id] ?? []) : [];
+                if ($eventoId) {
+                    $defaults = array_values(array_filter($defaults, function ($eid) use ($eventoId) {
+                        return (string) $eid === (string) $eventoId;
+                    }));
+                }
+                $selectedByPerson[$p->id] = $defaults;
             }
         }
 
@@ -283,11 +305,13 @@ class PgAsistenciasController extends Controller
             'departamentoId' => $departamentoId,
             'personaQ' => $personaQ,
             'personaId' => $personaId,
+            'eventoId' => $eventoId,
             'departamentos' => $departamentos,
             'personas' => $personas,
             // IMPORTANT: la vista usa $events para mostrar/ocultar el aviso y habilitar/deshabilitar acciones.
             // Si no se envía, la vista asume 0 eventos y mantiene el bloqueo aunque existan en BD.
             'events' => $events,
+            'allEventsDay' => $allEventsDay,
             'eventsByPerson' => $eventsByPerson,
             'selectedByPerson' => $selectedByPerson,
             'asistenciaMap' => $asistenciaMap,
@@ -760,6 +784,7 @@ class PgAsistenciasController extends Controller
             'fecha' => 'required',
             'persona_id' => 'required|string',
             'departamento_id' => 'nullable|string',
+            'evento_id' => 'nullable|string',
             'eventos' => 'array',
             'auto_close' => 'nullable|in:0,1',
         ]);
@@ -772,6 +797,10 @@ class PgAsistenciasController extends Controller
         $departamentoId = trim((string) $request->input('departamento_id'));
         if ($departamentoId === '') {
             $departamentoId = null;
+        }
+        $eventoId = trim((string) $request->input('evento_id'));
+        if ($eventoId === '') {
+            $eventoId = null;
         }
         $selected = array_values(array_unique(array_filter((array) $request->input('eventos', []))));
 
@@ -797,7 +826,14 @@ class PgAsistenciasController extends Controller
         DB::beginTransaction();
         try {
             $applicableByPerson = $this->getApplicableEventIdsByPerson($fecha, [$personaId]);
-            $this->syncPackedAttendanceForPerson($personaId, $fecha, $selected, $applicableByPerson[$personaId] ?? [], $uid, null);
+            $applicable = $applicableByPerson[$personaId] ?? [];
+            $restrictToProvided = false;
+            if ($eventoId) {
+                $applicable = in_array((string) $eventoId, array_map('strval', $applicable), true) ? [(string) $eventoId] : [];
+                $selected = array_values(array_intersect(array_map('strval', $selected), $applicable));
+                $restrictToProvided = true;
+            }
+            $this->syncPackedAttendanceForPerson($personaId, $fecha, $selected, $applicable, $uid, null, $restrictToProvided);
 
             // Si viene flag auto_close=1, cerramos faltas para esta persona
             if ((string) $request->input('auto_close') === '1') {
@@ -822,6 +858,10 @@ class PgAsistenciasController extends Controller
         $departamentoId = trim((string) $request->input('departamento_id'));
         if ($departamentoId === '') {
             $departamentoId = null;
+        }
+        $eventoId = trim((string) $request->input('evento_id'));
+        if ($eventoId === '') {
+            $eventoId = null;
         }
 
         $personEvents = $request->input('person_events', []);
@@ -930,6 +970,13 @@ class PgAsistenciasController extends Controller
             foreach ($personEvents as $personaId => $selected) {
                 $personaId = (string) $personaId;
                 $selected = array_values(array_unique(array_filter((array) $selected)));
+                $applicable = $applicableByPerson[$personaId] ?? [];
+                $restrictToProvided = false;
+                if ($eventoId) {
+                    $applicable = in_array((string) $eventoId, array_map('strval', $applicable), true) ? [(string) $eventoId] : [];
+                    $selected = array_values(array_intersect(array_map('strval', $selected), $applicable));
+                    $restrictToProvided = true;
+                }
 
                 $filePersona = $request->file("person_file.$personaId");
                 $idArchivoPersona = null;
@@ -937,7 +984,7 @@ class PgAsistenciasController extends Controller
                     $idArchivoPersona = ArchivoDigitalService::store($filePersona, 'Evidencia asistencia persona ' . $personaId);
                 }
 
-                $this->syncPackedAttendanceForPerson($personaId, $fecha, $selected, $applicableByPerson[$personaId] ?? [], $uid, $idArchivoPersona);
+                $this->syncPackedAttendanceForPerson($personaId, $fecha, $selected, $applicable, $uid, $idArchivoPersona, $restrictToProvided);
             }
 
             // Cerrar asistencia del día (registrar faltas) para la tabla actual
@@ -947,7 +994,7 @@ class PgAsistenciasController extends Controller
             }
 
             DB::commit();
-            return redirect()->route('PgAsistenciasIndex', ['fecha' => $fecha, 'departamento_id' => $departamentoId])
+            return redirect()->route('PgAsistenciasIndex', ['fecha' => $fecha, 'departamento_id' => $departamentoId, 'evento_id' => $eventoId])
                 ->with('success', 'Asistencias actualizadas correctamente.');
         } catch (\Throwable $e) {
             DB::rollBack();
@@ -959,7 +1006,7 @@ class PgAsistenciasController extends Controller
      * Persiste en formato compacto (1 registro por persona+fecha) y mantiene
      * operación por evento para compatibilidad con UI.
      */
-    private function syncPackedAttendanceForPerson(string $personaId, string $fecha, array $selected, array $applicableEventIds, string $uid = '', ?string $idArchivo = null): void
+    private function syncPackedAttendanceForPerson(string $personaId, string $fecha, array $selected, array $applicableEventIds, string $uid = '', ?string $idArchivo = null, bool $restrictToProvided = false): void
     {
         $selected = array_values(array_unique(array_filter(array_map('strval', $selected))));
         $selectedSet = array_fill_keys($selected, true);
@@ -992,6 +1039,9 @@ class PgAsistenciasController extends Controller
         }
 
         foreach ($existingEvents as $eventoId) {
+            if ($restrictToProvided && !in_array((string) $eventoId, $applicableEventIds, true)) {
+                continue;
+            }
             if (!isset($selectedSet[$eventoId])) {
                 PackedAttendanceService::updatePackedAttendance(
                     $personaId,
