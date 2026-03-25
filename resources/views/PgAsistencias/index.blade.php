@@ -62,7 +62,11 @@
                     <select id="departamento_id" name="departamento_id" class="form-control">
                         <option value="">-- General (todos) --</option>
                         @foreach($departamentos as $d)
-                            <option value="{{ $d->id }}" {{ ($departamentoId==$d->id)?'selected':'' }}>{{ $d->descripcion }}</option>
+                            @php
+                                $empresaNombre = trim((string) optional($d->empresa)->nombre);
+                                $deptLabel = $empresaNombre !== '' ? ($empresaNombre.' - '.$d->descripcion) : $d->descripcion;
+                            @endphp
+                            <option value="{{ $d->id }}" {{ ($departamentoId==$d->id)?'selected':'' }}>{{ $deptLabel }}</option>
                         @endforeach
                     </select>
                 </div>
@@ -85,9 +89,6 @@
                             <option value="{{ $evFiltro->id }}" {{ (($eventoId ?? null) == $evFiltro->id) ? 'selected' : '' }}>{{ $evFiltro->titulo }}</option>
                         @endforeach
                     </select>
-                </div>
-                <div class="col-md-1 text-right">
-                    <button class="btn btn-primary" type="submit"><i class="fas fa-search"></i></button>
                 </div>
             </div>
 
@@ -244,7 +245,10 @@
                                     @endif
                                     @if(!$departamentoId)
                                         <td>
-                                            <input type="file" name="person_file[{{ $p->id }}]" class="form-control" accept="image/*,.pdf,.doc,.docx" />
+                                            <input type="file" name="person_file[{{ $p->id }}]" class="form-control js-person-file" accept="image/*,.pdf,.doc,.docx" data-preview-target="person-file-preview-{{ $p->id }}" />
+                                            <div id="person-file-preview-{{ $p->id }}" class="mt-2" style="display:none;">
+                                                <img src="" alt="Vista previa" style="width:72px;height:72px;object-fit:cover;border:1px solid #ddd;border-radius:6px;background:#f8f9fa;" />
+                                            </div>
                                             <small class="text-muted">Se aplica a los eventos seleccionados.</small>
                                         </td>
                                     @endif
@@ -316,6 +320,32 @@
                 }
             });
             $('.js-eventos').select2({ width:'100%', language:'es' });
+
+            $('.js-person-file').on('change', function(){
+                var input = this;
+                var targetId = $(input).data('preview-target');
+                if (!targetId) return;
+
+                var $preview = $('#'+targetId);
+                var $img = $preview.find('img');
+                var file = input.files && input.files[0] ? input.files[0] : null;
+
+                if (!file || !file.type || file.type.indexOf('image/') !== 0) {
+                    $img.attr('src', '');
+                    $preview.hide();
+                    return;
+                }
+
+                var oldUrl = $img.data('blobUrl');
+                if (oldUrl) {
+                    URL.revokeObjectURL(oldUrl);
+                }
+
+                var blobUrl = URL.createObjectURL(file);
+                $img.data('blobUrl', blobUrl);
+                $img.attr('src', blobUrl);
+                $preview.show();
+            });
 
             function noEventosMsg(){
                 alert('No existen eventos creados para la fecha seleccionada. Debe crear eventos para continuar.');
