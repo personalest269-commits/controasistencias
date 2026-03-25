@@ -652,9 +652,9 @@ class PgAsistenciaReportesController extends Controller
     private function dayLabel(Carbon $d): string
     {
         // Carbon: 0=Domingo, 1=Lunes ... 6=Sábado
-        $map = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
-        $abbr = $map[$d->dayOfWeek] ?? 'D';
-        return $abbr . '(' . $d->day . ')';
+        $map = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+        $dayName = $map[$d->dayOfWeek] ?? 'Domingo';
+        return $dayName . '(' . $d->day . ')';
     }
 
     private function eventShortCode(string $title): string
