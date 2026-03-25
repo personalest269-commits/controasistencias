@@ -40,6 +40,15 @@
         <div class="col-12">
             <h4 class="mb-0">Administrar asistencia masiva por empresa</h4>
             <small class="text-muted">Marca asistencia por evento. Si seleccionas una empresa, se pre-seleccionan todos los eventos aplicables por persona.</small>
+            <br>
+            <small class="text-muted">
+                Modo actual:
+                <strong>{{ ($attendanceMode ?? 'single_check') === 'dual_check' ? '2 checks (inicio + fin)' : '1 check (simple)' }}</strong>.
+                Leyenda:
+                @foreach(($attendanceLegend ?? []) as $code => $label)
+                    <span class="badge badge-light border">{{ $code }}: {{ $label }}</span>
+                @endforeach
+            </small>
         </div>
     </div>
 
@@ -158,6 +167,7 @@
                                                     $isSel = in_array($e->id, $sel, true);
                                                     $badge = '';
                                                     if (!empty($asist[$e->id]) && ($asist[$e->id]->estado_asistencia ?? null) === 'A') $badge = ' (A)';
+                                                    elseif (!empty($asist[$e->id]) && ($asist[$e->id]->estado_asistencia ?? null) === 'AI') $badge = ' (AI)';
                                                     elseif (!empty($asist[$e->id]) && ($asist[$e->id]->estado_asistencia ?? null) === 'F') $badge = ' (F)';
                                                     elseif (!empty($just[$e->id])) $badge = ' (JUSTIFICÓ)';
                                                 @endphp

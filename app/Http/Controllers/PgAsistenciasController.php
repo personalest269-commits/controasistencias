@@ -11,6 +11,7 @@ use App\Models\PgEvento;
 use App\Models\PgJustificacionAsistencia;
 use App\Models\PgPersona;
 use App\Services\ArchivoDigitalService;
+use App\Services\AttendanceModeService;
 use App\Services\PackedAttendanceService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -325,6 +326,8 @@ class PgAsistenciasController extends Controller
             'asistenciaMap' => $asistenciaMap,
             'justMap' => $justMap,
             'deptEventRows' => $deptEventRows,
+            'attendanceMode' => AttendanceModeService::mode(),
+            'attendanceLegend' => AttendanceModeService::legend(),
         ]);
     }
 
@@ -462,6 +465,8 @@ class PgAsistenciasController extends Controller
             'selectedByPerson' => $selectedByPerson,
             'asistenciaMap' => $asistenciaMap,
             'justMap' => $justMap,
+            'attendanceMode' => AttendanceModeService::mode(),
+            'attendanceLegend' => AttendanceModeService::legend(),
         ]);
     }
 
