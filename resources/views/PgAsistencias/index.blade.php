@@ -167,15 +167,6 @@
                 <div class="d-flex align-items-center justify-content-between">
                     <strong>Listado de empleados</strong>
                     <div class="d-flex align-items-center" style="gap:8px;">
-                        @if(empty($eventoId))
-                            <div style="min-width:320px;">
-                                <select id="general_events" class="form-control" multiple>
-                                    @foreach(($events ?? collect()) as $evGeneral)
-                                        <option value="{{ $evGeneral->id }}">{{ $evGeneral->titulo }}</option>
-                                    @endforeach
-                                </select>
-                            </div>
-                        @endif
                         <div class="custom-control custom-checkbox mr-2">
                             <input type="checkbox" class="custom-control-input" id="chkGeneral">
                             <label class="custom-control-label" for="chkGeneral">Marcar general</label>
@@ -236,18 +227,18 @@
                                             @if(empty($eventsByPerson[$p->id] ?? []))
                                                 <small class="text-muted">Sin eventos para esta fecha.</small>
                                             @else
-                                                <div style="font-size:12px;">
+                                                <select name="person_events[{{ $p->id }}][]" class="form-control js-eventos" multiple data-persona="{{ $p->id }}">
                                                     @foreach(($eventsByPerson[$p->id] ?? []) as $e)
                                                         @php
+                                                            $isSel = in_array($e->id, $sel, true);
                                                             $badge = '';
                                                             if (!empty($asist[$e->id]) && ($asist[$e->id]->estado_asistencia ?? null) === 'A') $badge = ' (A)';
                                                             elseif (!empty($asist[$e->id]) && ($asist[$e->id]->estado_asistencia ?? null) === 'F') $badge = ' (F)';
                                                             elseif (!empty($just[$e->id])) $badge = ' (JUSTIFICÓ)';
                                                         @endphp
-                                                        <div>{{ $e->titulo }}{{ $badge }}</div>
-                                                        <input type="hidden" name="person_events[{{ $p->id }}][]" class="js-eventos-hidden" data-persona="{{ $p->id }}" value="{{ $e->id }}" />
+                                                        <option value="{{ $e->id }}" {{ $isSel ? 'selected' : '' }}>{{ $e->titulo }}{{ $badge }}</option>
                                                     @endforeach
-                                                </div>
+                                                </select>
                                             @endif
                                         </td>
                                     @endif
@@ -324,6 +315,7 @@
                     cache: true
                 }
             });
+            $('.js-eventos').select2({ width:'100%', language:'es' });
 
             function noEventosMsg(){
                 alert('No existen eventos creados para la fecha seleccionada. Debe crear eventos para continuar.');
@@ -350,7 +342,9 @@
             $('.js-tgl').on('change', function(){
                 var pid = $(this).data('persona');
                 var $hidden = $('.js-eventos-hidden[data-persona="'+pid+'"]');
+                var $select = $('.js-eventos[data-persona="'+pid+'"]');
                 $hidden.prop('disabled', !$(this).is(':checked'));
+                $select.prop('disabled', !$(this).is(':checked'));
 
                 debounceSave(pid, true);
             });
@@ -363,51 +357,18 @@
                 });
             });
 
-            // Modo general de eventos:
-            // - lo seleccionado aquí se replica en cada fila (si el evento aplica a la persona)
-            // - si se quita del modo general, también se quita en cada fila
-            var lastGeneralEvents = [];
-            $('#general_events').on('change', function(){
-                var selectedGeneral = ($(this).val() || []).map(String);
-                var removedGeneral = lastGeneralEvents.filter(function(id){
-                    return selectedGeneral.indexOf(String(id)) === -1;
-                });
-
-                $('.js-eventos').each(function(){
-                    var $rowSelect = $(this);
-                    var current = ($rowSelect.val() || []).map(String);
-
-                    // Agregar los eventos seleccionados en modo general que existan en esta fila
-                    selectedGeneral.forEach(function(eid){
-                        var $opt = $rowSelect.find('option[value="'+eid+'"]');
-                        var isLocked = String($opt.data('locked')) === '1';
-                        if ($opt.length && !isLocked && current.indexOf(eid) === -1) {
-                            current.push(eid);
-                        }
-                    });
-
-                    // Quitar los eventos removidos en modo general
-                    removedGeneral.forEach(function(eid){
-                        var $opt = $rowSelect.find('option[value="'+eid+'"]');
-                        var isLocked = String($opt.data('locked')) === '1';
-                        if (!isLocked) {
-                            current = current.filter(function(v){ return String(v) !== String(eid); });
-                        }
-                    });
-
-                    $rowSelect.val(current).trigger('change');
-                });
-
-                lastGeneralEvents = selectedGeneral.slice();
-            });
-
             // Auto-actualizar: guarda por persona cuando cambia selección (sin evidencias)
             function savePersona(pid){
                 var $hidden = $('.js-eventos-hidden[data-persona="'+pid+'"]');
-                var eventos = [];
-                $hidden.each(function(){
-                    if (!$(this).prop('disabled')) eventos.push($(this).val());
-                });
+                var $select = $('.js-eventos[data-persona="'+pid+'"]');
+                var eventos = $select.length
+                    ? (($select.val() || []).map(String))
+                    : [];
+                if (!eventos.length) {
+                    $hidden.each(function(){
+                        if (!$(this).prop('disabled')) eventos.push($(this).val());
+                    });
+                }
                 return $.ajax({
                     method: 'POST',
                     url: '{{ route('PgAsistenciasActualizarItem') }}',
@@ -434,6 +395,10 @@
                 }, 400);
             }
 
+            $('.js-eventos').on('change', function(){
+                debounceSave($(this).data('persona'), false);
+            });
+
             // Mantener hidden auto_close para el submit normal
             $('#chkAutoSave').on('change', function(){
                 $('#auto_close').val($(this).is(':checked') ? '1' : '0');
@@ -447,6 +412,11 @@
                 var isChecked = $('.js-tgl[data-persona="'+pid+'"]').is(':checked');
                 $(this).prop('disabled', !isChecked);
             });
+            $('.js-eventos').each(function(){
+                var pid = $(this).data('persona');
+                var isChecked = $('.js-tgl[data-persona="'+pid+'"]').is(':checked');
+                $(this).prop('disabled', !isChecked);
+            }).trigger('change.select2');
 
             // Auto-filtrar al cambiar filtros principales
             $('#departamento_id, #evento_id').on('change', function(){
