@@ -236,18 +236,18 @@
                                             @if(empty($eventsByPerson[$p->id] ?? []))
                                                 <small class="text-muted">Sin eventos para esta fecha.</small>
                                             @else
-                                                <div style="font-size:12px;">
+                                                <select name="person_events[{{ $p->id }}][]" class="form-control js-eventos" multiple data-persona="{{ $p->id }}">
                                                     @foreach(($eventsByPerson[$p->id] ?? []) as $e)
                                                         @php
+                                                            $isSel = in_array($e->id, $sel, true);
                                                             $badge = '';
                                                             if (!empty($asist[$e->id]) && ($asist[$e->id]->estado_asistencia ?? null) === 'A') $badge = ' (A)';
                                                             elseif (!empty($asist[$e->id]) && ($asist[$e->id]->estado_asistencia ?? null) === 'F') $badge = ' (F)';
                                                             elseif (!empty($just[$e->id])) $badge = ' (JUSTIFICÓ)';
                                                         @endphp
-                                                        <div>{{ $e->titulo }}{{ $badge }}</div>
-                                                        <input type="hidden" name="person_events[{{ $p->id }}][]" class="js-eventos-hidden" data-persona="{{ $p->id }}" value="{{ $e->id }}" />
+                                                        <option value="{{ $e->id }}" {{ $isSel ? 'selected' : '' }}>{{ $e->titulo }}{{ $badge }}</option>
                                                     @endforeach
-                                                </div>
+                                                </select>
                                             @endif
                                         </td>
                                     @endif
@@ -324,6 +324,7 @@
                     cache: true
                 }
             });
+            $('.js-eventos').select2({ width:'100%', language:'es' });
 
             function noEventosMsg(){
                 alert('No existen eventos creados para la fecha seleccionada. Debe crear eventos para continuar.');
@@ -350,7 +351,9 @@
             $('.js-tgl').on('change', function(){
                 var pid = $(this).data('persona');
                 var $hidden = $('.js-eventos-hidden[data-persona="'+pid+'"]');
+                var $select = $('.js-eventos[data-persona="'+pid+'"]');
                 $hidden.prop('disabled', !$(this).is(':checked'));
+                $select.prop('disabled', !$(this).is(':checked'));
 
                 debounceSave(pid, true);
             });
@@ -404,10 +407,15 @@
             // Auto-actualizar: guarda por persona cuando cambia selección (sin evidencias)
             function savePersona(pid){
                 var $hidden = $('.js-eventos-hidden[data-persona="'+pid+'"]');
-                var eventos = [];
-                $hidden.each(function(){
-                    if (!$(this).prop('disabled')) eventos.push($(this).val());
-                });
+                var $select = $('.js-eventos[data-persona="'+pid+'"]');
+                var eventos = $select.length
+                    ? (($select.val() || []).map(String))
+                    : [];
+                if (!eventos.length) {
+                    $hidden.each(function(){
+                        if (!$(this).prop('disabled')) eventos.push($(this).val());
+                    });
+                }
                 return $.ajax({
                     method: 'POST',
                     url: '{{ route('PgAsistenciasActualizarItem') }}',
@@ -434,6 +442,10 @@
                 }, 400);
             }
 
+            $('.js-eventos').on('change', function(){
+                debounceSave($(this).data('persona'), false);
+            });
+
             // Mantener hidden auto_close para el submit normal
             $('#chkAutoSave').on('change', function(){
                 $('#auto_close').val($(this).is(':checked') ? '1' : '0');
@@ -447,6 +459,11 @@
                 var isChecked = $('.js-tgl[data-persona="'+pid+'"]').is(':checked');
                 $(this).prop('disabled', !isChecked);
             });
+            $('.js-eventos').each(function(){
+                var pid = $(this).data('persona');
+                var isChecked = $('.js-tgl[data-persona="'+pid+'"]').is(':checked');
+                $(this).prop('disabled', !isChecked);
+            }).trigger('change.select2');
 
             // Auto-filtrar al cambiar filtros principales
             $('#departamento_id, #evento_id').on('change', function(){
