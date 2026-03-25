@@ -31,20 +31,43 @@
 
     <form method="GET" action="{{ route('PgAsistenciasReportes') }}" class="mb-3">
         <div class="row">
-            <div class="col-md-3">
+            <div class="col-md-2">
                 <label>Desde</label>
                 <input type="text" id="desde" name="desde" value="{{ $desde }}" class="form-control" autocomplete="off" />
             </div>
-            <div class="col-md-3">
+            <div class="col-md-2">
                 <label>Hasta</label>
                 <input type="text" id="hasta" name="hasta" value="{{ $hasta }}" class="form-control" autocomplete="off" />
             </div>
-            <div class="col-md-4">
-                <label>Departamento (opcional)</label>
+            <div class="col-md-3">
+                <label>Empresa - Departamento (opcional)</label>
                 <select id="departamento_id" name="departamento_id" class="form-control">
                     <option value="" {{ !$departamentoId ? 'selected' : '' }}>-- Todos --</option>
                     @foreach($departamentos as $d)
-                        <option value="{{ $d->id }}" {{ ($departamentoId==$d->id)?'selected':'' }}>{{ $d->descripcion }}</option>
+                        @php
+                            $empresaNombre = trim((string) optional($d->empresa)->descripcion);
+                            $depNombre = trim((string) $d->descripcion);
+                            $combo = $empresaNombre !== '' ? ($empresaNombre.' - '.$depNombre) : $depNombre;
+                        @endphp
+                        <option value="{{ $d->id }}" {{ ($departamentoId==$d->id)?'selected':'' }}>{{ $combo }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label>Persona (cédula / apellidos y nombres)</label>
+                <select id="persona_id" name="persona_id" class="form-control">
+                    <option value="" {{ !$personaId ? 'selected' : '' }}>-- Todas --</option>
+                    @foreach(($personasSelect ?? []) as $p)
+                        @php
+                            $nombre = trim(implode(' ', array_filter([
+                                trim((string) $p->apellido1),
+                                trim((string) $p->apellido2),
+                                trim((string) $p->nombres),
+                            ])));
+                            $identificacion = trim((string) $p->identificacion);
+                            $label = $identificacion !== '' ? ($identificacion.' - '.$nombre) : $nombre;
+                        @endphp
+                        <option value="{{ $p->id }}" {{ ($personaId==$p->id)?'selected':'' }}>{{ $label }}</option>
                     @endforeach
                 </select>
             </div>
@@ -55,14 +78,14 @@
     </form>
 
     <div class="mb-3">
-        <a class="btn btn-outline-primary btn-sm" href="{{ route('PgAsistenciasReporteDiaEvento', ['desde'=>$desde,'hasta'=>$hasta,'departamento_id'=>$departamentoId]) }}">Asistencia por Día y Evento</a>
-        <a class="btn btn-outline-primary btn-sm" href="{{ route('PgAsistenciasReporteMes', ['anio'=>\Carbon\Carbon::parse($hasta)->year, 'departamento_id'=>$departamentoId]) }}">Asistencia por Mes</a>
-        <a class="btn btn-outline-secondary btn-sm" href="{{ route('PgAsistenciasReporteExportXlsResumen', ['desde'=>$desde,'hasta'=>$hasta,'departamento_id'=>$departamentoId]) }}">Exportar XLS (Resumen)</a>
-        <a class="btn btn-outline-secondary btn-sm" href="{{ route('PgAsistenciasReporteExportXlsDetalle', ['desde'=>$desde,'hasta'=>$hasta,'departamento_id'=>$departamentoId]) }}">Exportar XLS (Detallado)</a>
+        <a class="btn btn-outline-primary btn-sm" href="{{ route('PgAsistenciasReporteDiaEvento', ['desde'=>$desde,'hasta'=>$hasta,'departamento_id'=>$departamentoId,'persona_id'=>$personaId]) }}">Asistencia por Día y Evento</a>
+        <a class="btn btn-outline-primary btn-sm" href="{{ route('PgAsistenciasReporteMes', ['anio'=>\Carbon\Carbon::parse($hasta)->year, 'departamento_id'=>$departamentoId,'persona_id'=>$personaId]) }}">Asistencia por Mes</a>
+        <a class="btn btn-outline-secondary btn-sm" href="{{ route('PgAsistenciasReporteExportXlsResumen', ['desde'=>$desde,'hasta'=>$hasta,'departamento_id'=>$departamentoId,'persona_id'=>$personaId]) }}">Exportar XLS (Resumen)</a>
+        <a class="btn btn-outline-secondary btn-sm" href="{{ route('PgAsistenciasReporteExportXlsDetalle', ['desde'=>$desde,'hasta'=>$hasta,'departamento_id'=>$departamentoId,'persona_id'=>$personaId]) }}">Exportar XLS (Detallado)</a>
         {{-- PDF en misma pestaña para evitar bloqueos de descarga/pop-up en algunos navegadores --}}
-        <a class="btn btn-outline-secondary btn-sm" href="{{ route('PgAsistenciasReporteExportPdfResumen', ['desde'=>$desde,'hasta'=>$hasta,'departamento_id'=>$departamentoId]) }}">PDF (Resumen)</a>
-        <a class="btn btn-outline-secondary btn-sm" href="{{ route('PgAsistenciasReporteExportPdfDetalle', ['desde'=>$desde,'hasta'=>$hasta,'departamento_id'=>$departamentoId]) }}">PDF (Detallado)</a>
-        <a class="btn btn-outline-secondary btn-sm" href="{{ route('PgAsistenciasReporteExport', ['desde'=>$desde,'hasta'=>$hasta,'departamento_id'=>$departamentoId]) }}">CSV</a>
+        <a class="btn btn-outline-secondary btn-sm" href="{{ route('PgAsistenciasReporteExportPdfResumen', ['desde'=>$desde,'hasta'=>$hasta,'departamento_id'=>$departamentoId,'persona_id'=>$personaId]) }}">PDF (Resumen)</a>
+        <a class="btn btn-outline-secondary btn-sm" href="{{ route('PgAsistenciasReporteExportPdfDetalle', ['desde'=>$desde,'hasta'=>$hasta,'departamento_id'=>$departamentoId,'persona_id'=>$personaId]) }}">PDF (Detallado)</a>
+        <a class="btn btn-outline-secondary btn-sm" href="{{ route('PgAsistenciasReporteExport', ['desde'=>$desde,'hasta'=>$hasta,'departamento_id'=>$departamentoId,'persona_id'=>$personaId]) }}">CSV</a>
         <a class="btn btn-outline-secondary btn-sm" href="{{ route('PgAsistenciasIndex') }}">Volver a asistencia</a>
     </div>
 
@@ -158,6 +181,11 @@
             if (window.jQuery && jQuery.fn && jQuery.fn.select2) {
                 jQuery('#departamento_id').select2({
                     placeholder: '-- Todos --',
+                    allowClear: true,
+                    width: '100%'
+                });
+                jQuery('#persona_id').select2({
+                    placeholder: '-- Todas --',
                     allowClear: true,
                     width: '100%'
                 });
