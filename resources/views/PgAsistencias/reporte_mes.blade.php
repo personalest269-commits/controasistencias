@@ -110,21 +110,20 @@
                         </select>
                     </div>
 
-                    <div class="col-12 mt-2">
-                        <div class="d-flex flex-wrap" style="gap:18px;">
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" value="1" id="todos_meses" name="todos_meses" {{ $todosMeses ? 'checked' : '' }}>
-                                <label class="form-check-label" for="todos_meses">Todos los meses</label>
+                    <div class="col-md-3 d-flex align-items-end">
+                        <div class="d-flex align-items-start w-100" style="gap:16px; border-left:1px solid #d1d5db; padding-left:14px;">
+                            <div>
+                                <div class="form-check mb-2">
+                                    <input class="form-check-input" type="checkbox" value="1" id="todos_meses" name="todos_meses" {{ $todosMeses ? 'checked' : '' }}>
+                                    <label class="form-check-label" for="todos_meses">Todos los meses</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" value="1" id="solo_eventos" name="solo_eventos" {{ !empty($soloEventos) ? 'checked' : '' }}>
+                                    <label class="form-check-label" for="solo_eventos">Solo eventos</label>
+                                </div>
                             </div>
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" value="1" id="solo_eventos" name="solo_eventos" {{ !empty($soloEventos) ? 'checked' : '' }}>
-                                <label class="form-check-label" for="solo_eventos">Solo eventos</label>
-                            </div>
+                            <button class="btn btn-primary" type="submit">Filtrar</button>
                         </div>
-                    </div>
-
-                    <div class="col-12 mt-3">
-                        <button class="btn btn-primary" type="submit">Filtrar</button>
                     </div>
                 </div>
             </form>
