@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
@@ -154,20 +155,6 @@ class ImportacionesEmpresaController extends Controller
             ->with('success', 'Archivo cargado en temporal por empresa. Revisa el preview antes de aplicar.');
     }
 
-    public function importApi(Request $request)
-    {
-        [$empresaIdUsuario, , $isAdmin] = $this->resolveUserEmpresaContext();
-
-        if (!$empresaIdUsuario && !$isAdmin) {
-            return back()->with('error', 'No se pudo resolver la empresa del usuario para importar desde API.');
-        }
-
-        $empresaIdFinal = $isAdmin ? ($request->input('empresa_id') ?: $empresaIdUsuario) : $empresaIdUsuario;
-        $request->merge(['empresa_id' => $empresaIdFinal]);
-
-        return app(PersonaImportController::class)->importApi($request);
-    }
-
     public function preview(string $batch)
     {
         return app(PersonaImportController::class)->preview($batch);
@@ -199,7 +186,8 @@ class ImportacionesEmpresaController extends Controller
         $sheet = $spreadsheet->getActiveSheet();
 
         foreach ($headers as $i => $h) {
-            $sheet->setCellValueByColumnAndRow($i + 1, 1, $h);
+            $col = Coordinate::stringFromColumnIndex($i + 1);
+            $sheet->setCellValue($col . '1', $h);
         }
 
         $sheet->setCellValue('M2', 'S');

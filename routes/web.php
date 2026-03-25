@@ -127,7 +127,6 @@ Route::get('/importaciones-logs', [\App\Http\Controllers\ImportacionesController
     // Importaciones por Empresa (validación por usuario/rol/empresa)
     Route::get('/importaciones-empresa', [\App\Http\Controllers\ImportacionesEmpresaController::class, 'index'])->name('importaciones_empresa.index');
     Route::post('/importaciones-empresa/xls', [\App\Http\Controllers\ImportacionesEmpresaController::class, 'importXls'])->name('importaciones_empresa.xls');
-    Route::post('/importaciones-empresa/api', [\App\Http\Controllers\ImportacionesEmpresaController::class, 'importApi'])->name('importaciones_empresa.api');
     Route::get('/importaciones-empresa/formato', [\App\Http\Controllers\ImportacionesEmpresaController::class, 'downloadFormato'])->name('importaciones_empresa.formato');
     Route::get('/importaciones-empresa/preview/{batch}', [\App\Http\Controllers\ImportacionesEmpresaController::class, 'preview'])->name('importaciones_empresa.preview');
     Route::post('/importaciones-empresa/apply/{batch}', [\App\Http\Controllers\ImportacionesEmpresaController::class, 'apply'])->name('importaciones_empresa.apply');
