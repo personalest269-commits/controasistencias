@@ -14,6 +14,7 @@ use App\Services\ArchivoDigitalService;
 use App\Services\PackedAttendanceService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -975,9 +976,21 @@ class PgAsistenciasController extends Controller
                     }
 
                     foreach ($files as $file) {
+                        if (!($file instanceof UploadedFile)) {
+                            throw new \RuntimeException('Archivo de evidencia inválido para el evento ' . $eventoId . '.');
+                        }
+                        if (!$file->isValid()) {
+                            throw new \RuntimeException(
+                                'No se pudo subir una evidencia del evento ' . $eventoId . ': ' . $file->getErrorMessage()
+                            );
+                        }
+
                         $idArchivo = ArchivoDigitalService::store($file, 'Evidencia asistencia depto ' . $departamentoId . ' evento ' . $eventoId);
                         if (!$idArchivo) {
-                            throw new \RuntimeException('No se pudo guardar una evidencia del evento ' . $eventoId);
+                            throw new \RuntimeException(
+                                'No se pudo guardar una evidencia del evento ' . $eventoId
+                                . '. Verifica tamaño permitido y formato de imagen.'
+                            );
                         }
                         PgAsistenciaLoteArchivo::create([
                             'asistencia_lote_id' => $lote->id,

@@ -20,8 +20,21 @@ class ArchivoDigitalService
     public static function store(UploadedFile $file, ?string $descripcion = null, ?string $tipoDocumento = null, ?string $tipoArchivo = null): ?string
     {
         try {
+            if (!$file->isValid()) {
+                \Log::warning('Archivo inválido al guardar en ad_archivo_digital', [
+                    'error_code' => $file->getError(),
+                    'error_message' => $file->getErrorMessage(),
+                    'original_name' => $file->getClientOriginalName(),
+                ]);
+                return null;
+            }
+
             $binary = @file_get_contents($file->getRealPath());
             if ($binary === false) {
+                \Log::warning('No se pudo leer el temporal del archivo para ad_archivo_digital', [
+                    'original_name' => $file->getClientOriginalName(),
+                    'tmp_path' => $file->getRealPath(),
+                ]);
                 return null;
             }
 
