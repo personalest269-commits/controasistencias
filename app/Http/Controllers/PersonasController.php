@@ -802,6 +802,23 @@ $tiposIdentificacion = PgTipoIdentificacion::orderBy('descripcion')->get();
     $validator = Validator::make($request->all(), $rules, $messages);
 
     $validator->after(function ($v) use ($request, $persona, $crearUsuario) {
+        $empresaId = trim((string) $request->input('empresa_id', ''));
+        $departamentoId = trim((string) $request->input('departamento_id', ''));
+
+        // El departamento seleccionado debe pertenecer a la empresa elegida.
+        if ($empresaId !== '' && $departamentoId !== '') {
+            $belongs = PgDepartamento::query()
+                ->where('id', $departamentoId)
+                ->where('empresa_id', $empresaId)
+                ->where(function ($q) {
+                    $q->whereNull('estado')->orWhere('estado', '<>', 'X');
+                })
+                ->exists();
+
+            if (!$belongs) {
+                $v->errors()->add('departamento_id', 'El departamento seleccionado no pertenece a la empresa elegida.');
+            }
+        }
 
         // =========================
         // Si NO está agregando usuario, pero ya existe uno, sincronizamos email
@@ -875,6 +892,7 @@ $tiposIdentificacion = PgTipoIdentificacion::orderBy('descripcion')->get();
         $persona->celular = $request->celular;
         $persona->email = $request->email;
         $persona->cod_estado_civil = $request->cod_estado_civil;
+        $persona->empresa_id = $request->input('empresa_id');
         $persona->departamento_id = $request->input('departamento_id') ?: null;
         $persona->save();
 
