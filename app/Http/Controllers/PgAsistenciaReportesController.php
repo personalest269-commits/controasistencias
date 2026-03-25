@@ -306,14 +306,15 @@ class PgAsistenciaReportesController extends Controller
 
     public function ReporteMes(Request $request)
     {
-        [$anio, $mes, $todosMeses, $departamentoId, $personaId, $departamentos, $personasSelect, $personas] = $this->resolveFiltersMes($request);
+        [$anio, $mes, $todosMeses, $soloEventos, $departamentoId, $personaId, $departamentos, $personasSelect, $personas] = $this->resolveFiltersMes($request);
 
-        $data = $this->buildMesCalendario($personas, $anio, $mes, $todosMeses);
+        $data = $this->buildMesCalendario($personas, $anio, $mes, $todosMeses, $soloEventos);
 
         return view('PgAsistencias.reporte_mes', [
             'anio' => $anio,
             'mes' => $mes,
             'todosMeses' => $todosMeses,
+            'soloEventos' => $soloEventos,
             'departamentoId' => $departamentoId,
             'personaId' => $personaId,
             'departamentos' => $departamentos,
@@ -324,8 +325,8 @@ class PgAsistenciaReportesController extends Controller
 
     public function ExportXlsMes(Request $request)
     {
-        [$anio, $mes, $todosMeses, $departamentoId, $personaId, $departamentos, $personasSelect, $personas] = $this->resolveFiltersMes($request);
-        $data = $this->buildMesCalendario($personas, $anio, $mes, $todosMeses);
+        [$anio, $mes, $todosMeses, $soloEventos, $departamentoId, $personaId, $departamentos, $personasSelect, $personas] = $this->resolveFiltersMes($request);
+        $data = $this->buildMesCalendario($personas, $anio, $mes, $todosMeses, $soloEventos);
 
         $fileName = 'reporte_asistencia_mes_' . $anio;
         if (!$todosMeses && $mes) {
@@ -337,6 +338,7 @@ class PgAsistenciaReportesController extends Controller
             'anio' => $anio,
             'mes' => $mes,
             'todosMeses' => $todosMeses,
+            'soloEventos' => $soloEventos,
             'departamentoId' => $departamentoId,
             'personaId' => $personaId,
             'months' => $data['months'],
@@ -346,13 +348,14 @@ class PgAsistenciaReportesController extends Controller
 
     public function ExportPdfMes(Request $request)
     {
-        [$anio, $mes, $todosMeses, $departamentoId, $personaId, $departamentos, $personasSelect, $personas] = $this->resolveFiltersMes($request);
-        $data = $this->buildMesCalendario($personas, $anio, $mes, $todosMeses);
+        [$anio, $mes, $todosMeses, $soloEventos, $departamentoId, $personaId, $departamentos, $personasSelect, $personas] = $this->resolveFiltersMes($request);
+        $data = $this->buildMesCalendario($personas, $anio, $mes, $todosMeses, $soloEventos);
 
         return view('PgAsistencias.export_pdf_mes', [
             'anio' => $anio,
             'mes' => $mes,
             'todosMeses' => $todosMeses,
+            'soloEventos' => $soloEventos,
             'departamentoId' => $departamentoId,
             'personaId' => $personaId,
             'months' => $data['months'],
@@ -447,10 +450,12 @@ class PgAsistenciaReportesController extends Controller
         if ($personaId) $personasQ->where('id', $personaId);
         $personas = $personasQ->orderBy('apellido1')->orderBy('apellido2')->orderBy('nombres')->get();
 
-        return [$anio, $mes, $todosMeses, $departamentoId, $personaId, $departamentos, $personasSelect, $personas];
+        $soloEventos = $request->has('solo_eventos') && ((string) $request->input('solo_eventos')) === '1';
+
+        return [$anio, $mes, $todosMeses, $soloEventos, $departamentoId, $personaId, $departamentos, $personasSelect, $personas];
     }
 
-    private function buildMesCalendario($personas, int $anio, ?int $mes, bool $todosMeses): array
+    private function buildMesCalendario($personas, int $anio, ?int $mes, bool $todosMeses, bool $soloEventos = false): array
     {
         $today = Carbon::today();
         $maxMonth = ($anio === $today->year) ? $today->month : 12;
@@ -534,6 +539,7 @@ class PgAsistenciaReportesController extends Controller
             $dateEvents = [];  // date => [eventId => PgEvento]
             $dateTargets = []; // date => targets
             $allDates = collect($weeks)->flatten()->filter()->unique()->values()->all();
+            $eventDatesSet = [];
             foreach ($allDates as $dateStr) {
                 $events = $this->eventsForDate($dateStr);
                 if (empty($events)) {
@@ -562,6 +568,36 @@ class PgAsistenciaReportesController extends Controller
                 }
                 $dateEvents[$dateStr] = $filtered;
                 $dateTargets[$dateStr] = $targets;
+                if (!empty($filtered)) {
+                    $eventDatesSet[$dateStr] = true;
+                }
+            }
+
+            $weekHasEvents = [];
+            foreach ($weeks as $wi => $week) {
+                $hasEventInWeek = false;
+                foreach ($week as $day) {
+                    if ($day && !empty($eventDatesSet[$day])) {
+                        $hasEventInWeek = true;
+                        break;
+                    }
+                }
+                $weekHasEvents[$wi] = $hasEventInWeek;
+            }
+
+            if ($soloEventos) {
+                $weeksFiltered = [];
+                foreach ($weeks as $wi => $week) {
+                    if (!$weekHasEvents[$wi]) {
+                        continue;
+                    }
+                    $onlyEventDays = [];
+                    foreach ($week as $day) {
+                        $onlyEventDays[] = ($day && !empty($eventDatesSet[$day])) ? $day : null;
+                    }
+                    $weeksFiltered[] = $onlyEventDays;
+                }
+                $weeks = $weeksFiltered;
             }
 
             // filas por persona
@@ -580,22 +616,30 @@ class PgAsistenciaReportesController extends Controller
                     $targets = $dateTargets[$dateStr] ?? ['deps' => [], 'pers' => []];
 
                     $cntA = 0; $cntJ = 0; $cntF = 0;
+                    $eventCodes = [];
                     foreach ($events as $eid => $e) {
                         if (!$this->eventAppliesToPerson($eid, $p->id, $p->departamento_id, $targets)) {
                             continue;
                         }
                         $k = $eid . '|' . $dateStr;
                         $st = $asistMap[$p->id][$k] ?? '';
+                        $status = 'F';
                         if ($st === 'A') {
                             $cntA++;
+                            $status = 'A';
                         } elseif (!empty($justMap[$p->id][$k])) {
                             $cntJ++;
+                            $status = 'J';
                         } elseif ($st === 'F') {
                             $cntF++;
+                            $status = 'F';
                         } else {
                             // fallback: si no hay registro aún, cuenta como falta
                             $cntF++;
+                            $status = 'F';
                         }
+
+                        $eventCodes[] = $this->eventShortCode((string) ($e->titulo ?? 'EV')) . '(' . $status . ')';
                     }
 
                     if (($cntA + $cntJ + $cntF) === 0) {
@@ -603,19 +647,18 @@ class PgAsistenciaReportesController extends Controller
                         continue;
                     }
 
-                    // Estado resumido para la celda: A / J / F
-                    $mark = 'A';
-                    if ($cntF > 0) {
-                        $mark = 'F';
-                    } elseif ($cntA === 0 && $cntJ > 0) {
-                        $mark = 'J';
-                    }
+                    $markParts = [];
+                    if ($cntA > 0) $markParts[] = 'A';
+                    if ($cntJ > 0) $markParts[] = 'J';
+                    if ($cntF > 0) $markParts[] = 'F';
+                    $mark = implode('/', $markParts);
 
                     $row['cells'][$dateStr] = [
                         'mark' => $mark,
                         'a' => $cntA,
                         'j' => $cntJ,
                         'f' => $cntF,
+                        'event_codes' => $eventCodes,
                     ];
                     $row['totales']['convocados'] += ($cntA + $cntJ + $cntF);
                     $row['totales']['asistio'] += $cntA;
@@ -631,6 +674,7 @@ class PgAsistenciaReportesController extends Controller
                 'mes' => $m,
                 'titulo' => $mStart->translatedFormat('F') . ' ' . $anio,
                 'weeks' => $weeks,
+                'has_events' => !empty($eventDatesSet),
                 'rows' => $rows,
             ];
         }
@@ -641,9 +685,27 @@ class PgAsistenciaReportesController extends Controller
     private function dayLabel(Carbon $d): string
     {
         // Carbon: 0=Domingo, 1=Lunes ... 6=Sábado
-        $map = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
-        $abbr = $map[$d->dayOfWeek] ?? 'D';
-        return $abbr . '(' . $d->day . ')';
+        $map = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+        $dayName = $map[$d->dayOfWeek] ?? 'Domingo';
+        return $dayName . '(' . $d->day . ')';
+    }
+
+    private function eventShortCode(string $title): string
+    {
+        $clean = preg_replace('/[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9\s]/u', ' ', $title);
+        $parts = preg_split('/\s+/u', trim((string) $clean)) ?: [];
+        if (empty($parts)) {
+            return 'EV';
+        }
+
+        $code = '';
+        foreach ($parts as $part) {
+            if ($part === '') continue;
+            $code .= mb_strtoupper(mb_substr($part, 0, 1));
+            if (mb_strlen($code) >= 2) break;
+        }
+
+        return mb_substr($code !== '' ? $code : 'EV', 0, 3);
     }
 
     private function buildDiaEvento($personas, string $desde, string $hasta): array
