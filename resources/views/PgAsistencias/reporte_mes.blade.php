@@ -196,9 +196,10 @@
                                             $eventCodes = $c['event_codes'] ?? [];
                                             $statusCounts = ['A' => 0, 'F' => 0, 'J' => 0];
                                             foreach($eventCodes as $eventCodeTmp){
-                                                if (preg_match('/\(([AFJ])\)/i', $eventCodeTmp, $ms)) {
+                                                $eventCodeNorm = strtoupper(ltrim(strip_tags((string)$eventCodeTmp)));
+                                                if (preg_match('/\(([AFJ])\)/i', $eventCodeNorm, $ms)) {
                                                     $statusCounts[strtoupper($ms[1])]++;
-                                                } elseif (preg_match('/^\s*([AFJ])\b/i', $eventCodeTmp, $ms)) {
+                                                } elseif (preg_match('/^([AFJ])(?:\\b|[^A-Z])/', $eventCodeNorm, $ms)) {
                                                     $statusCounts[strtoupper($ms[1])]++;
                                                 } elseif (in_array($mark, ['A','F','J'], true)) {
                                                     $statusCounts[$mark]++;
@@ -218,16 +219,18 @@
                                                     <div class="event-code" title="{{ implode(' | ', $eventCodes) }}">
                                                         @foreach($eventCodes as $eventCode)
                                                             @php
+                                                                $eventCodeNorm = strtoupper(ltrim(strip_tags((string)$eventCode)));
                                                                 $status = '';
-                                                                if (preg_match('/\(([AFJ])\)/', $eventCode, $mch)) {
+                                                                if (preg_match('/\(([AFJ])\)/', $eventCodeNorm, $mch)) {
                                                                     $status = strtoupper($mch[1]);
-                                                                } elseif (preg_match('/^\s*([AFJ])\b/i', $eventCode, $mch)) {
+                                                                } elseif (preg_match('/^([AFJ])(?:\\b|[^A-Z])/', $eventCodeNorm, $mch)) {
                                                                     $status = strtoupper($mch[1]);
                                                                 } elseif (in_array($mark, ['A','F','J'], true)) {
                                                                     $status = $mark;
                                                                 }
                                                                 $eventClass = $status === 'A' ? 'event-a' : ($status === 'J' ? 'event-j' : ($status === 'F' ? 'event-f' : 'event-x'));
                                                                 $eventText = preg_replace('/\(([AFJ])\)/i', '', $eventCode);
+                                                                $eventText = preg_replace('/^\s*[AFJ][\s\-\:\.]+/i', '', $eventText);
                                                                 $eventText = preg_replace('/^\s*[AFJ]\s*/i', '', $eventText);
                                                                 $eventText = trim($eventText);
                                                             @endphp
