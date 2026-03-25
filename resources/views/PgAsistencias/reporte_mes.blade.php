@@ -25,14 +25,11 @@
         .mark-mix{ color:#7c3aed; font-weight:800; }
         .event-code{ font-size:9px; color:#475569; line-height:1.2; text-align:left; margin-top:2px; }
         .event-code .event-item{ white-space:normal; margin-bottom:2px; }
-        .event-item .event-badge{
-            display:inline-block; min-width:16px; padding:0 4px; border-radius:4px;
-            color:#fff; font-size:9px; font-weight:700; line-height:14px; text-align:center; margin-right:3px;
-        }
-        .event-item.event-a .event-badge{ background:#16a34a; }
-        .event-item.event-j .event-badge{ background:#2563eb; }
-        .event-item.event-f .event-badge{ background:#dc2626; }
-        .event-item.event-x .event-badge{ background:#64748b; }
+        .event-item .event-status{ font-weight:800; margin-right:3px; }
+        .event-item.event-a .event-status{ color:#16a34a; }
+        .event-item.event-j .event-status{ color:#2563eb; }
+        .event-item.event-f .event-status{ color:#dc2626; }
+        .event-item.event-x .event-status{ color:#64748b; }
 
         .day-vertical{ height:72px; vertical-align:bottom; padding:0 2px !important; }
         .day-vertical .day-name{
@@ -204,14 +201,21 @@
                                                     <div class="event-code" title="{{ implode(' | ', $eventCodes) }}">
                                                         @foreach($eventCodes as $eventCode)
                                                             @php
-                                                                $status = 'X';
+                                                                $status = '';
                                                                 if (preg_match('/\(([AFJ])\)/', $eventCode, $mch)) {
                                                                     $status = strtoupper($mch[1]);
+                                                                } elseif (preg_match('/^\s*([AFJ])\b/i', $eventCode, $mch)) {
+                                                                    $status = strtoupper($mch[1]);
+                                                                } elseif (in_array($mark, ['A','F','J'], true)) {
+                                                                    $status = $mark;
                                                                 }
                                                                 $eventClass = $status === 'A' ? 'event-a' : ($status === 'J' ? 'event-j' : ($status === 'F' ? 'event-f' : 'event-x'));
+                                                                $eventText = preg_replace('/\(([AFJ])\)/i', '', $eventCode);
+                                                                $eventText = preg_replace('/^\s*[AFJ]\s*/i', '', $eventText);
+                                                                $eventText = trim($eventText);
                                                             @endphp
                                                             <div class="event-item {{ $eventClass }}">
-                                                                <span class="event-badge">{{ $status }}</span>{{ $eventCode }}
+                                                                @if($status)<span class="event-status">{{ $status }}</span>@endif{{ $eventText }}
                                                             </div>
                                                         @endforeach
                                                     </div>
