@@ -345,7 +345,7 @@
         }
     } catch (e) {}
 
-    function syncDepartamentosByEmpresa() {
+    function syncDepartamentosByEmpresa(forceClearSelection) {
         var empresa = document.getElementById('empresa_id_edit');
         var dept = document.getElementById('departamento_id_edit');
         if (!empresa || !dept) return;
@@ -353,6 +353,14 @@
         var empresaId = (empresa.value || '').trim();
         var hasSelectedVisible = false;
         var selectedValue = (dept.value || '').trim();
+
+        if (forceClearSelection) {
+            selectedValue = '';
+            dept.value = '';
+            if (window.jQuery && $.fn.select2) {
+                $('#departamento_id_edit').val(null).trigger('change');
+            }
+        }
 
         for (var i = 0; i < dept.options.length; i++) {
             var opt = dept.options[i];
@@ -493,7 +501,9 @@
 
         syncDepartamentosByEmpresa();
         if (empresaSel) {
-            empresaSel.addEventListener('change', syncDepartamentosByEmpresa);
+            empresaSel.addEventListener('change', function () {
+                syncDepartamentosByEmpresa(true);
+            });
         }
 
         applyMask();
