@@ -22,6 +22,8 @@
         .mark-a{ color:#16a34a; font-weight:800; }
         .mark-j{ color:#2563eb; font-weight:800; }
         .mark-n{ color:#dc2626; font-weight:800; }
+        .mark-mix{ color:#7c3aed; font-weight:800; }
+        .event-code{ font-size:9px; color:#475569; line-height:1.1; }
 
         @media print{
             .no-print{ display:none !important; }
@@ -80,6 +82,13 @@
                         </div>
                     </div>
 
+                    <div class="col-md-2 d-flex align-items-end">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" value="1" id="solo_eventos" name="solo_eventos" {{ !empty($soloEventos) ? 'checked' : '' }}>
+                            <label class="form-check-label" for="solo_eventos">Solo eventos</label>
+                        </div>
+                    </div>
+
                     <div class="col-md-2">
                         <label>Departamento</label>
                         <select id="departamento_id" name="departamento_id" class="form-control">
@@ -120,6 +129,12 @@
             </div>
 
             <div class="card-body" style="overflow:auto;">
+                @if(!($m['has_events'] ?? false))
+                    <div class="alert alert-info text-center mb-0" style="font-size:22px; font-weight:700;">
+                        NO HUBO EVENTOS
+                    </div>
+                    @continue
+                @endif
                 <table class="tbl-mes">
                     <thead>
                         <tr>
@@ -165,10 +180,16 @@
                                             if($mark==='A') $cls='mark-a';
                                             elseif($mark==='J') $cls='mark-j';
                                             elseif($mark==='F') $cls='mark-n';
+                                            elseif(str_contains($mark, 'F')) $cls='mark-n';
+                                            elseif(str_contains($mark, '/')) $cls='mark-mix';
+                                            $eventCodes = $c['event_codes'] ?? [];
                                         @endphp
                                         <td class="w-day">
                                             @if($mark)
                                                 <span class="{{ $cls }}">{{ $mark }}</span>
+                                                @if(!empty($eventCodes))
+                                                    <div class="event-code" title="{{ implode(', ', $eventCodes) }}">{{ implode(', ', $eventCodes) }}</div>
+                                                @endif
                                             @else
                                                 &nbsp;
                                             @endif
