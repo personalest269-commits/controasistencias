@@ -202,7 +202,7 @@
                                             <select name="departamento_id" id="departamento_id_edit" class="form-control {{ $errors->has('departamento_id') ? 'is-invalid' : '' }}">
                                                 <option value="">-- Seleccione --</option>
                                                 @foreach(($departamentos ?? []) as $d)
-                                                    <option value="{{ $d->id }}" {{ old('departamento_id', $persona->departamento_id) == $d->id ? 'selected' : '' }}>
+                                                    <option value="{{ $d->id }}" data-empresa-id="{{ $d->empresa_id }}" {{ old('departamento_id', $persona->departamento_id) == $d->id ? 'selected' : '' }}>
                                                         {{ $d->descripcion }}
                                                     </option>
                                                 @endforeach
@@ -344,6 +344,41 @@
             });
         }
     } catch (e) {}
+
+    function syncDepartamentosByEmpresa() {
+        var empresa = document.getElementById('empresa_id_edit');
+        var dept = document.getElementById('departamento_id_edit');
+        if (!empresa || !dept) return;
+
+        var empresaId = (empresa.value || '').trim();
+        var hasSelectedVisible = false;
+        var selectedValue = (dept.value || '').trim();
+
+        for (var i = 0; i < dept.options.length; i++) {
+            var opt = dept.options[i];
+            if (!opt.value) {
+                opt.hidden = false;
+                continue;
+            }
+            var optEmpresaId = (opt.getAttribute('data-empresa-id') || '').trim();
+            var visible = !empresaId || optEmpresaId === empresaId;
+            opt.hidden = !visible;
+
+            if (visible && selectedValue && opt.value === selectedValue) {
+                hasSelectedVisible = true;
+            }
+        }
+
+        if (selectedValue && !hasSelectedVisible) {
+            dept.value = '';
+            if (window.jQuery && $.fn.select2) {
+                $('#departamento_id_edit').val('').trigger('change.select2');
+            }
+        } else if (window.jQuery && $.fn.select2) {
+            $('#departamento_id_edit').trigger('change.select2');
+        }
+    }
+
     function getSelectedCfg() {
         var sel = document.getElementById('tipo_identificacion');
         if (!sel) return null;
@@ -453,7 +488,13 @@
         var sel = document.getElementById('tipo_identificacion');
         var input = document.getElementById('identificacion');
         var form = document.querySelector('form[action*="PersonasUpdate"]');
+        var empresaSel = document.getElementById('empresa_id_edit');
         if (!sel || !input) return;
+
+        syncDepartamentosByEmpresa();
+        if (empresaSel) {
+            empresaSel.addEventListener('change', syncDepartamentosByEmpresa);
+        }
 
         applyMask();
 
