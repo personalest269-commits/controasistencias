@@ -47,9 +47,16 @@ class ArchivoDigitalService
             }
 
             $mime = $file->getClientMimeType() ?: 'application/octet-stream';
+            $tipoDocumentoCodigo = $tipoDocumento;
+            if ($tipoDocumentoCodigo === null && str_starts_with(strtolower($mime), 'image/')) {
+                // Convención del catálogo ad_tipo_documento:
+                // 00001 = FOTOGRAFÍA (según datos semilla / ambientes productivos).
+                // Esto evita rechazos por validaciones/trigger que esperan tipo_documento para imágenes.
+                $tipoDocumentoCodigo = '00001';
+            }
 
             $archivo = new AdArchivoDigital();
-            $archivo->tipo_documento_codigo = $tipoDocumento;
+            $archivo->tipo_documento_codigo = $tipoDocumentoCodigo;
             $archivo->tipo_archivo_codigo = $tipoArchivo;
             $archivo->nombre_original = $file->getClientOriginalName();
             $archivo->ruta = '';
@@ -65,6 +72,9 @@ class ArchivoDigitalService
         } catch (\Throwable $e) {
             \Log::warning('No se pudo guardar archivo en ad_archivo_digital', [
                 'error' => $e->getMessage(),
+                'original_name' => $file->getClientOriginalName(),
+                'mime' => $file->getClientMimeType(),
+                'size_bytes' => $file->getSize(),
             ]);
             return null;
         }
