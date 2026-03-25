@@ -36,7 +36,7 @@ class PgAsistenciaReportesController extends Controller
     private function departamentosVigentes()
     {
         return PgDepartamento::query()
-            ->with(['empresa:id,descripcion'])
+            ->with(['empresa:id,nombre'])
             ->whereNull('vigencia_hasta')
             ->where(function ($q) {
                 $q->whereNull('estado')->orWhere('estado', '<>', 'X');

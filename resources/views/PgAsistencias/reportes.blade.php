@@ -45,7 +45,7 @@
                     <option value="" {{ !$departamentoId ? 'selected' : '' }}>-- Todos --</option>
                     @foreach($departamentos as $d)
                         @php
-                            $empresaNombre = trim((string) optional($d->empresa)->descripcion);
+                            $empresaNombre = trim((string) optional($d->empresa)->nombre);
                             $depNombre = trim((string) $d->descripcion);
                             $combo = $empresaNombre !== '' ? ($empresaNombre.' - '.$depNombre) : $depNombre;
                         @endphp
