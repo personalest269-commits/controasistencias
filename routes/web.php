@@ -123,6 +123,15 @@ Route::get('/importaciones-logs', [\App\Http\Controllers\ImportacionesController
     Route::post('/personas/import/clear/{batch}', [\App\Http\Controllers\PersonaImportController::class, 'clear'])->name('personas.import.clear');
     Route::post('/personas/import/truncate-stg', [\App\Http\Controllers\PersonaImportController::class, 'truncateStaging'])->name('personas.import.truncate_stg');
 
+
+    // Importaciones por Empresa (validación por usuario/rol/empresa)
+    Route::get('/importaciones-empresa', [\App\Http\Controllers\ImportacionesEmpresaController::class, 'index'])->name('importaciones_empresa.index');
+    Route::post('/importaciones-empresa/xls', [\App\Http\Controllers\ImportacionesEmpresaController::class, 'importXls'])->name('importaciones_empresa.xls');
+    Route::get('/importaciones-empresa/formato', [\App\Http\Controllers\ImportacionesEmpresaController::class, 'downloadFormato'])->name('importaciones_empresa.formato');
+    Route::get('/importaciones-empresa/preview/{batch}', [\App\Http\Controllers\ImportacionesEmpresaController::class, 'preview'])->name('importaciones_empresa.preview');
+    Route::post('/importaciones-empresa/apply/{batch}', [\App\Http\Controllers\ImportacionesEmpresaController::class, 'apply'])->name('importaciones_empresa.apply');
+    Route::post('/importaciones-empresa/clear/{batch}', [\App\Http\Controllers\ImportacionesEmpresaController::class, 'clear'])->name('importaciones_empresa.clear');
+
     // Configuración API (por defecto) para Importación de Personas
     // Protegido por permiso asignable por rol.
     Route::get('/config/api/personas-import', [\App\Http\Controllers\ApiConfigController::class, 'editPersonasImport'])

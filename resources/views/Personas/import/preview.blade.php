@@ -1,6 +1,15 @@
 @extends("templates.".config("sysconfig.theme").".master")
 
 @section('content')
+    @php
+        $routeName = optional(request()->route())->getName();
+        $isEmpresaFlow = str_starts_with((string)$routeName, 'importaciones_empresa.');
+        $rIndex = $isEmpresaFlow ? 'importaciones_empresa.index' : 'personas.import.index';
+        $rReport = 'personas.import.report';
+        $rClear = $isEmpresaFlow ? 'importaciones_empresa.clear' : 'personas.import.clear';
+        $rApply = $isEmpresaFlow ? 'importaciones_empresa.apply' : 'personas.import.apply';
+    @endphp
+
     <div class="row" style="margin-bottom:10px;">
         <div class="col-md-12">
             <h3 style="margin-top:0;">Preview de Importación</h3>
@@ -27,13 +36,13 @@
 
     <div class="row" style="margin-bottom:10px;">
         <div class="col-md-12" style="display:flex;gap:8px;">
-            <a class="btn btn-default" href="{{ route('personas.import.index') }}"><i class="fa fa-arrow-left"></i> Volver</a>
+            <a class="btn btn-default" href="{{ route($rIndex) }}"><i class="fa fa-arrow-left"></i> Volver</a>
 
-            <a class="btn btn-warning" href="{{ route('personas.import.report', $batch) }}">
+            <a class="btn btn-warning" href="{{ route($rReport, $batch) }}">
                 <i class="fa fa-file-excel-o"></i> Reporte de cambios
             </a>
 
-            <form method="POST" action="{{ route('personas.import.clear', $batch) }}" style="display:inline;">
+            <form method="POST" action="{{ route($rClear, $batch) }}" style="display:inline;">
                 @csrf
                 <button class="btn btn-warning" type="submit" onclick="return confirm('¿Eliminar este lote temporal?')"><i class="fa fa-trash"></i> Limpiar lote</button>
             </form>
@@ -45,7 +54,7 @@
                 </button>
             </form>
 
-            <form method="POST" action="{{ route('personas.import.apply', $batch) }}" style="display:inline;">
+            <form method="POST" action="{{ route($rApply, $batch) }}" style="display:inline;">
                 @csrf
                 <button class="btn btn-primary" type="submit" {{ $hasErrors ? 'disabled' : '' }} onclick="return confirm('¿Aplicar importación a pg_persona?')">
                     <i class="fa fa-check"></i> Aplicar
