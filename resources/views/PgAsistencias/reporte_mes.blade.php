@@ -23,7 +23,8 @@
         .mark-j{ color:#2563eb; font-weight:800; }
         .mark-n{ color:#dc2626; font-weight:800; }
         .mark-mix{ color:#7c3aed; font-weight:800; }
-        .event-code{ font-size:9px; color:#475569; line-height:1.1; }
+        .event-code{ font-size:9px; color:#475569; line-height:1.2; text-align:left; margin-top:2px; }
+        .event-code .event-item{ white-space:normal; }
 
         @media print{
             .no-print{ display:none !important; }
@@ -188,7 +189,11 @@
                                             @if($mark)
                                                 <span class="{{ $cls }}">{{ $mark }}</span>
                                                 @if(!empty($eventCodes))
-                                                    <div class="event-code" title="{{ implode(', ', $eventCodes) }}">{{ implode(', ', $eventCodes) }}</div>
+                                                    <div class="event-code" title="{{ implode(' | ', $eventCodes) }}">
+                                                        @foreach($eventCodes as $eventCode)
+                                                            <div class="event-item">{{ $eventCode }}</div>
+                                                        @endforeach
+                                                    </div>
                                                 @endif
                                             @else
                                                 &nbsp;

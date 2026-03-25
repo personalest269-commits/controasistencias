@@ -599,6 +599,12 @@ class PgAsistenciaReportesController extends Controller
                 }
                 $weeks = $weeksFiltered;
             }
+            if ($soloEventos && empty($eventDatesSet)) {
+                continue;
+            }
+            $datesToProcess = $soloEventos
+                ? collect($weeks)->flatten()->filter()->unique()->values()->all()
+                : $allDates;
 
             // filas por persona
             $rows = [];
@@ -611,7 +617,7 @@ class PgAsistenciaReportesController extends Controller
                     'totales' => ['convocados' => 0, 'asistio' => 0, 'justifico' => 0, 'no' => 0],
                 ];
 
-                foreach ($allDates as $dateStr) {
+                foreach ($datesToProcess as $dateStr) {
                     $events = $dateEvents[$dateStr] ?? [];
                     $targets = $dateTargets[$dateStr] ?? ['deps' => [], 'pers' => []];
 
@@ -639,7 +645,8 @@ class PgAsistenciaReportesController extends Controller
                             $status = 'F';
                         }
 
-                        $eventCodes[] = $this->eventShortCode((string) ($e->titulo ?? 'EV')) . '(' . $status . ')';
+                        $eventTitle = trim((string) ($e->titulo ?? 'Evento'));
+                        $eventCodes[] = ($eventTitle !== '' ? $eventTitle : 'Evento') . ' (' . $status . ')';
                     }
 
                     if (($cntA + $cntJ + $cntF) === 0) {
@@ -688,24 +695,6 @@ class PgAsistenciaReportesController extends Controller
         $map = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
         $dayName = $map[$d->dayOfWeek] ?? 'Domingo';
         return $dayName . '(' . $d->day . ')';
-    }
-
-    private function eventShortCode(string $title): string
-    {
-        $clean = preg_replace('/[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9\s]/u', ' ', $title);
-        $parts = preg_split('/\s+/u', trim((string) $clean)) ?: [];
-        if (empty($parts)) {
-            return 'EV';
-        }
-
-        $code = '';
-        foreach ($parts as $part) {
-            if ($part === '') continue;
-            $code .= mb_strtoupper(mb_substr($part, 0, 1));
-            if (mb_strlen($code) >= 2) break;
-        }
-
-        return mb_substr($code !== '' ? $code : 'EV', 0, 3);
     }
 
     private function buildDiaEvento($personas, string $desde, string $hasta): array
