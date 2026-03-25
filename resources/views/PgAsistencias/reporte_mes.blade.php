@@ -15,16 +15,28 @@
         .tbl-mes th, .tbl-mes td{ border:1px solid #e5e7eb; padding:4px 6px; font-size:11px; }
         .tbl-mes thead th{ background:#f8fafc; font-weight:700; }
         .w-persona{ width:260px; }
-        .w-day{ width:26px; text-align:center; }
+        .w-day{ width:32px; text-align:center; }
         .w-tot{ width:160px; }
         /* Encabezado sombreado: texto negro (como pediste) */
         .hdr-blue{ background:#dbeafe; color:#000; font-weight:700; }
-        .mark-a{ color:#16a34a; font-weight:800; }
-        .mark-j{ color:#2563eb; font-weight:800; }
-        .mark-n{ color:#dc2626; font-weight:800; }
-        .mark-mix{ color:#7c3aed; font-weight:800; }
+        .mark-a, .mark-j, .mark-n, .mark-mix{ font-weight:800; display:inline-block; margin-right:2px; }
+        .mark-a{ color:#16a34a; }
+        .mark-j{ color:#2563eb; }
+        .mark-n{ color:#dc2626; }
+        .mark-mix{ color:#7c3aed; }
         .event-code{ font-size:9px; color:#475569; line-height:1.2; text-align:left; margin-top:2px; }
-        .event-code .event-item{ white-space:normal; }
+        .event-code .event-item{ white-space:normal; margin-bottom:2px; }
+        .event-item .event-status{ font-weight:800; margin-right:3px; }
+        .event-item.event-a .event-status{ color:#16a34a; }
+        .event-item.event-j .event-status{ color:#2563eb; }
+        .event-item.event-f .event-status{ color:#dc2626; }
+        .event-item.event-x .event-status{ color:#64748b; }
+
+        .day-vertical{ height:72px; vertical-align:bottom; padding:0 2px !important; }
+        .day-vertical .day-name{
+            display:inline-block; writing-mode:vertical-rl; transform:rotate(180deg);
+            font-weight:700; letter-spacing:.3px; font-size:10px; line-height:1;
+        }
 
         @media print{
             .no-print{ display:none !important; }
@@ -76,20 +88,6 @@
                         <small class="text-muted">Formato: AAAA-MM</small>
                     </div>
 
-                    <div class="col-md-3 d-flex align-items-end">
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" value="1" id="todos_meses" name="todos_meses" {{ $todosMeses ? 'checked' : '' }}>
-                            <label class="form-check-label" for="todos_meses">Todos los meses</label>
-                        </div>
-                    </div>
-
-                    <div class="col-md-2 d-flex align-items-end">
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" value="1" id="solo_eventos" name="solo_eventos" {{ !empty($soloEventos) ? 'checked' : '' }}>
-                            <label class="form-check-label" for="solo_eventos">Solo eventos</label>
-                        </div>
-                    </div>
-
                     <div class="col-md-2">
                         <label>Departamento</label>
                         <select id="departamento_id" name="departamento_id" class="form-control">
@@ -110,8 +108,20 @@
                         </select>
                     </div>
 
-                    <div class="col-12 mt-3">
-                        <button class="btn btn-primary" type="submit">Filtrar</button>
+                    <div class="col-md-3 d-flex align-items-end">
+                        <div class="d-flex align-items-start w-100" style="gap:16px; border-left:1px solid #d1d5db; padding-left:14px;">
+                            <div>
+                                <div class="form-check mb-2">
+                                    <input class="form-check-input" type="checkbox" value="1" id="todos_meses" name="todos_meses" {{ $todosMeses ? 'checked' : '' }}>
+                                    <label class="form-check-label" for="todos_meses">Todos los meses</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" value="1" id="solo_eventos" name="solo_eventos" {{ !empty($soloEventos) ? 'checked' : '' }}>
+                                    <label class="form-check-label" for="solo_eventos">Solo eventos</label>
+                                </div>
+                            </div>
+                            <button class="btn btn-primary" type="submit">Filtrar</button>
+                        </div>
                     </div>
                 </div>
             </form>
@@ -148,8 +158,8 @@
                         <tr>
                             <th class="w-persona">&nbsp;</th>
                             @foreach($m['weeks'] as $week)
-                                @foreach(['L','M','M','J','V','S','D'] as $d)
-                                    <th class="w-day">{{ $d }}</th>
+                                @foreach(['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'] as $d)
+                                    <th class="w-day day-vertical"><span class="day-name">{{ $d }}</span></th>
                                 @endforeach
                             @endforeach
                             <th class="w-tot">&nbsp;</th>
@@ -184,14 +194,46 @@
                                             elseif(str_contains($mark, 'F')) $cls='mark-n';
                                             elseif(str_contains($mark, '/')) $cls='mark-mix';
                                             $eventCodes = $c['event_codes'] ?? [];
+                                            $statusCounts = ['A' => 0, 'F' => 0, 'J' => 0];
+                                            foreach($eventCodes as $eventCodeTmp){
+                                                if (preg_match('/\(([AFJ])\)/i', $eventCodeTmp, $ms)) {
+                                                    $statusCounts[strtoupper($ms[1])]++;
+                                                } elseif (preg_match('/^\s*([AFJ])\b/i', $eventCodeTmp, $ms)) {
+                                                    $statusCounts[strtoupper($ms[1])]++;
+                                                } elseif (in_array($mark, ['A','F','J'], true)) {
+                                                    $statusCounts[$mark]++;
+                                                }
+                                            }
                                         @endphp
                                         <td class="w-day">
                                             @if($mark)
-                                                <span class="{{ $cls }}">{{ $mark }}</span>
+                                                @if(array_sum($statusCounts) > 0)
+                                                    @if($statusCounts['A'] > 0)<span class="mark-a">A({{ $statusCounts['A'] }})</span>@endif
+                                                    @if($statusCounts['F'] > 0)<span class="mark-n">F({{ $statusCounts['F'] }})</span>@endif
+                                                    @if($statusCounts['J'] > 0)<span class="mark-j">J({{ $statusCounts['J'] }})</span>@endif
+                                                @else
+                                                    <span class="{{ $cls }}">{{ $mark }}</span>
+                                                @endif
                                                 @if(!empty($eventCodes))
                                                     <div class="event-code" title="{{ implode(' | ', $eventCodes) }}">
                                                         @foreach($eventCodes as $eventCode)
-                                                            <div class="event-item">{{ $eventCode }}</div>
+                                                            @php
+                                                                $status = '';
+                                                                if (preg_match('/\(([AFJ])\)/', $eventCode, $mch)) {
+                                                                    $status = strtoupper($mch[1]);
+                                                                } elseif (preg_match('/^\s*([AFJ])\b/i', $eventCode, $mch)) {
+                                                                    $status = strtoupper($mch[1]);
+                                                                } elseif (in_array($mark, ['A','F','J'], true)) {
+                                                                    $status = $mark;
+                                                                }
+                                                                $eventClass = $status === 'A' ? 'event-a' : ($status === 'J' ? 'event-j' : ($status === 'F' ? 'event-f' : 'event-x'));
+                                                                $eventText = preg_replace('/\(([AFJ])\)/i', '', $eventCode);
+                                                                $eventText = preg_replace('/^\s*[AFJ]\s*/i', '', $eventText);
+                                                                $eventText = trim($eventText);
+                                                            @endphp
+                                                            <div class="event-item {{ $eventClass }}">
+                                                                @if($status)<span class="event-status">{{ $status }}</span>@endif{{ $eventText }}
+                                                            </div>
                                                         @endforeach
                                                     </div>
                                                 @endif
