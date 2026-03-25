@@ -36,6 +36,7 @@ class PgAsistenciaReportesController extends Controller
     private function departamentosVigentes()
     {
         return PgDepartamento::query()
+            ->with(['empresa:id,nombre'])
             ->whereNull('vigencia_hasta')
             ->where(function ($q) {
                 $q->whereNull('estado')->orWhere('estado', '<>', 'X');
@@ -49,17 +50,37 @@ class PgAsistenciaReportesController extends Controller
         $desde = $this->parseDateInput($request->input('desde'), Carbon::today()->startOfMonth()->format('Y-m-d'));
         $hasta = $this->parseDateInput($request->input('hasta'), Carbon::today()->format('Y-m-d'));
         $departamentoId = trim((string) $request->input('departamento_id'));
+        $personaId = trim((string) $request->input('persona_id'));
         if ($departamentoId === '') {
             $departamentoId = null;
         }
+        if ($personaId === '') {
+            $personaId = null;
+        }
 
         $departamentos = $this->departamentosVigentes();
+
+        $personasSelectQ = PgPersona::query()->where(function ($q) {
+            $q->whereNull('estado')->orWhere('estado', '<>', 'X');
+        });
+        if ($departamentoId) {
+            $personasSelectQ->where('departamento_id', $departamentoId);
+        }
+        $personasSelect = $personasSelectQ
+            ->orderBy('identificacion')
+            ->orderBy('apellido1')
+            ->orderBy('apellido2')
+            ->orderBy('nombres')
+            ->get(['id', 'identificacion', 'nombres', 'apellido1', 'apellido2']);
 
         $personasQ = PgPersona::query()->where(function ($q) {
             $q->whereNull('estado')->orWhere('estado', '<>', 'X');
         });
         if ($departamentoId) {
             $personasQ->where('departamento_id', $departamentoId);
+        }
+        if ($personaId) {
+            $personasQ->where('id', $personaId);
         }
         $personas = $personasQ->orderBy('apellido1')->orderBy('apellido2')->orderBy('nombres')->get();
 
@@ -70,7 +91,9 @@ class PgAsistenciaReportesController extends Controller
             'desde' => $desde,
             'hasta' => $hasta,
             'departamentoId' => $departamentoId,
+            'personaId' => $personaId,
             'departamentos' => $departamentos,
+            'personasSelect' => $personasSelect,
             'summary' => $summary,
             'resumenDept' => $resumenDept,
         ]);
@@ -97,8 +120,12 @@ class PgAsistenciaReportesController extends Controller
         $desde = $this->parseDateInput($request->input('desde'), Carbon::today()->startOfMonth()->format('Y-m-d'));
         $hasta = $this->parseDateInput($request->input('hasta'), Carbon::today()->format('Y-m-d'));
         $departamentoId = trim((string) $request->input('departamento_id'));
+        $personaId = trim((string) $request->input('persona_id'));
         if ($departamentoId === '') {
             $departamentoId = null;
+        }
+        if ($personaId === '') {
+            $personaId = null;
         }
 
         $personasQ = PgPersona::query()->where(function ($q) {
@@ -106,6 +133,9 @@ class PgAsistenciaReportesController extends Controller
         });
         if ($departamentoId) {
             $personasQ->where('departamento_id', $departamentoId);
+        }
+        if ($personaId) {
+            $personasQ->where('id', $personaId);
         }
         $personas = $personasQ->orderBy('apellido1')->orderBy('apellido2')->orderBy('nombres')->get();
 
@@ -133,7 +163,10 @@ class PgAsistenciaReportesController extends Controller
         $csv = stream_get_contents($out);
         fclose($out);
 
-        $name = 'reporte_asistencia_' . $desde . '_a_' . $hasta . ($departamentoId ? ('_dep_' . $departamentoId) : '') . '.csv';
+        $name = 'reporte_asistencia_' . $desde . '_a_' . $hasta
+            . ($departamentoId ? ('_dep_' . $departamentoId) : '')
+            . ($personaId ? ('_per_' . $personaId) : '')
+            . '.csv';
 
         return response($csv)
             ->header('Content-Type', 'text/csv; charset=UTF-8')
@@ -1025,8 +1058,12 @@ class PgAsistenciaReportesController extends Controller
         $desde = $this->parseDateInput($request->input('desde'), Carbon::today()->startOfMonth()->format('Y-m-d'));
         $hasta = $this->parseDateInput($request->input('hasta'), Carbon::today()->format('Y-m-d'));
         $departamentoId = trim((string) $request->input('departamento_id'));
+        $personaId = trim((string) $request->input('persona_id'));
         if ($departamentoId === '') {
             $departamentoId = null;
+        }
+        if ($personaId === '') {
+            $personaId = null;
         }
 
         $departamentos = $this->departamentosVigentes();
@@ -1036,6 +1073,9 @@ class PgAsistenciaReportesController extends Controller
         });
         if ($departamentoId) {
             $personasQ->where('departamento_id', $departamentoId);
+        }
+        if ($personaId) {
+            $personasQ->where('id', $personaId);
         }
         $personas = $personasQ->orderBy('apellido1')->orderBy('apellido2')->orderBy('nombres')->get();
 
