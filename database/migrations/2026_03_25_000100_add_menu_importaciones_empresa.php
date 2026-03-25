@@ -1,7 +1,9 @@
 <?php
 
 use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 return new class extends Migration
 {
@@ -20,7 +22,7 @@ return new class extends Migration
         $padre = DB::table('pg_opcion_menu')->where('titulo', 'Gestión de Importaciones')->first();
         if (!$padre) {
             $idPadre = $this->nextId('pg_opcion_menu');
-            DB::table('pg_opcion_menu')->insert([
+            $ok = $this->safeMenuInsert([
                 'id' => $idPadre,
                 'titulo' => 'Gestión de Importaciones',
                 'id_padre' => null,
@@ -31,13 +33,16 @@ return new class extends Migration
                 'id_archivo' => null,
                 'estado' => null,
             ]);
+            if (!$ok) {
+                return;
+            }
         } else {
             $idPadre = (string) $padre->id;
         }
 
         $exists = DB::table('pg_opcion_menu')->where('url', '/importaciones-empresa')->exists();
         if (!$exists) {
-            DB::table('pg_opcion_menu')->insert([
+            $this->safeMenuInsert([
                 'id' => $this->nextId('pg_opcion_menu'),
                 'titulo' => 'Importaciones Empresa',
                 'id_padre' => $idPadre,
@@ -48,6 +53,29 @@ return new class extends Migration
                 'id_archivo' => null,
                 'estado' => null,
             ]);
+        }
+    }
+
+    /**
+     * Inserta menú de forma resiliente. Si el ambiente tiene triggers/definers
+     * inválidos (MySQL 1449), no tumba el proceso de migrate.
+     */
+    private function safeMenuInsert(array $data): bool
+    {
+        try {
+            DB::table('pg_opcion_menu')->insert($data);
+            return true;
+        } catch (QueryException $e) {
+            $msg = (string) $e->getMessage();
+            if (str_contains($msg, '1449') || str_contains($msg, 'definer')) {
+                Log::warning('Se omitió seed de menú Importaciones Empresa por definer inválido en trigger', [
+                    'error' => $msg,
+                    'menu' => $data['titulo'] ?? null,
+                ]);
+                return false;
+            }
+
+            throw $e;
         }
     }
 
