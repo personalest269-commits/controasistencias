@@ -19,10 +19,11 @@
         .w-tot{ width:160px; }
         /* Encabezado sombreado: texto negro (como pediste) */
         .hdr-blue{ background:#dbeafe; color:#000; font-weight:700; }
-        .mark-a{ color:#16a34a; font-weight:800; }
-        .mark-j{ color:#2563eb; font-weight:800; }
-        .mark-n{ color:#dc2626; font-weight:800; }
-        .mark-mix{ color:#7c3aed; font-weight:800; }
+        .mark-a, .mark-j, .mark-n, .mark-mix{ font-weight:800; display:inline-block; margin-right:2px; }
+        .mark-a{ color:#16a34a; }
+        .mark-j{ color:#2563eb; }
+        .mark-n{ color:#dc2626; }
+        .mark-mix{ color:#7c3aed; }
         .event-code{ font-size:9px; color:#475569; line-height:1.2; text-align:left; margin-top:2px; }
         .event-code .event-item{ white-space:normal; margin-bottom:2px; }
         .event-item .event-status{ font-weight:800; margin-right:3px; }
@@ -193,10 +194,26 @@
                                             elseif(str_contains($mark, 'F')) $cls='mark-n';
                                             elseif(str_contains($mark, '/')) $cls='mark-mix';
                                             $eventCodes = $c['event_codes'] ?? [];
+                                            $statusCounts = ['A' => 0, 'F' => 0, 'J' => 0];
+                                            foreach($eventCodes as $eventCodeTmp){
+                                                if (preg_match('/\(([AFJ])\)/i', $eventCodeTmp, $ms)) {
+                                                    $statusCounts[strtoupper($ms[1])]++;
+                                                } elseif (preg_match('/^\s*([AFJ])\b/i', $eventCodeTmp, $ms)) {
+                                                    $statusCounts[strtoupper($ms[1])]++;
+                                                } elseif (in_array($mark, ['A','F','J'], true)) {
+                                                    $statusCounts[$mark]++;
+                                                }
+                                            }
                                         @endphp
                                         <td class="w-day">
                                             @if($mark)
-                                                <span class="{{ $cls }}">{{ $mark }}</span>
+                                                @if(array_sum($statusCounts) > 0)
+                                                    @if($statusCounts['A'] > 0)<span class="mark-a">A({{ $statusCounts['A'] }})</span>@endif
+                                                    @if($statusCounts['F'] > 0)<span class="mark-n">F({{ $statusCounts['F'] }})</span>@endif
+                                                    @if($statusCounts['J'] > 0)<span class="mark-j">J({{ $statusCounts['J'] }})</span>@endif
+                                                @else
+                                                    <span class="{{ $cls }}">{{ $mark }}</span>
+                                                @endif
                                                 @if(!empty($eventCodes))
                                                     <div class="event-code" title="{{ implode(' | ', $eventCodes) }}">
                                                         @foreach($eventCodes as $eventCode)
