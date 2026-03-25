@@ -62,7 +62,11 @@
                     <select id="departamento_id" name="departamento_id" class="form-control">
                         <option value="">-- General (todos) --</option>
                         @foreach($departamentos as $d)
-                            <option value="{{ $d->id }}" {{ ($departamentoId==$d->id)?'selected':'' }}>{{ $d->descripcion }}</option>
+                            @php
+                                $empresaNombre = trim((string) optional($d->empresa)->nombre);
+                                $deptLabel = $empresaNombre !== '' ? ($empresaNombre.' - '.$d->descripcion) : $d->descripcion;
+                            @endphp
+                            <option value="{{ $d->id }}" {{ ($departamentoId==$d->id)?'selected':'' }}>{{ $deptLabel }}</option>
                         @endforeach
                     </select>
                 </div>
@@ -85,9 +89,6 @@
                             <option value="{{ $evFiltro->id }}" {{ (($eventoId ?? null) == $evFiltro->id) ? 'selected' : '' }}>{{ $evFiltro->titulo }}</option>
                         @endforeach
                     </select>
-                </div>
-                <div class="col-md-1 text-right">
-                    <button class="btn btn-primary" type="submit"><i class="fas fa-search"></i></button>
                 </div>
             </div>
 

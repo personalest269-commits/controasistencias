@@ -148,7 +148,7 @@ class PgAsistenciasController extends Controller
             $eventoId = null;
         }
 
-        $departamentos = PgDepartamento::orderBy('descripcion')->get();
+        $departamentos = PgDepartamento::with('empresa:id,nombre')->orderBy('descripcion')->get();
 
         $personasQ = PgPersona::query()->where(function ($q) {
             $q->whereNull('estado')->orWhere('estado', '<>', 'X');
