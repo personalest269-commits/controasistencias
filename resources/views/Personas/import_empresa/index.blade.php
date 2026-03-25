@@ -7,8 +7,8 @@
             <p class="text-muted" style="margin-bottom:0;">Copia del flujo de importación orientado a <strong>empresa/usuario/roles</strong>.</p>
             <div class="alert alert-info" style="margin-top:10px;">
                 <i class="fa fa-info-circle"></i>
-                <a href="{{ route('importaciones_empresa.formato') }}">Descargar formato automático por empresa</a>
-                <span class="text-muted">(incluye los nuevos campos de <code>pg_persona_stg</code> y completa EMPRESA por defecto).</span>
+                <a href="{{ route('importaciones_empresa.formato') }}">Descargar formato de Excel</a>
+                <span class="text-muted">(solo con las columnas permitidas para esta carga).</span>
             </div>
             @if(!$isAdminImport)
                 <div class="alert alert-warning" style="margin-top:10px;">
@@ -36,9 +36,9 @@
     @endif
 
     <div class="row">
-        <div class="col-md-6">
+        <div class="col-md-12">
             <div class="panel panel-default">
-                <div class="panel-heading"><strong>1) Subir archivo XLS / XLSX</strong></div>
+                <div class="panel-heading"><strong>Subir archivo XLS / XLSX</strong></div>
                 <div class="panel-body">
                     <form method="POST" action="{{ route('importaciones_empresa.xls') }}" enctype="multipart/form-data">
                         @csrf
@@ -62,18 +62,35 @@
 
                         <button class="btn btn-primary" type="submit"><i class="fa fa-upload"></i> Cargar y previsualizar</button>
                     </form>
-                </div>
-            </div>
-        </div>
 
-        <div class="col-md-6">
-            <div class="panel panel-default">
-                <div class="panel-heading"><strong>2) Importar desde API</strong></div>
-                <div class="panel-body">
-                    <div class="alert alert-warning" style="margin:0;">
-                        <i class="fa fa-ban"></i>
-                        Este flujo fue deshabilitado para <strong>ImportacionesEmpresa</strong>. Solo se usará importación por archivo XLS/XLSX.
+                    <hr>
+                    <h4 style="margin-top:0;">Formato esperado del Excel</h4>
+                    <p class="text-muted">Solo se procesan estas columnas (en este orden):</p>
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-condensed" style="margin-bottom:0;">
+                            <thead>
+                            <tr>
+                                <th>NOMBRES</th>
+                                <th>APELLIDO1</th>
+                                <th>APELLIDO2</th>
+                                <th>DIRECCION</th>
+                                <th>VIGENTE</th>
+                                <th>COD_DEPARTAMENTO</th>
+                                <th>DEPARTAMENTO</th>
+                                <th>EMAIL</th>
+                                <th>IDENTIFICACION</th>
+                                <th>FECHA_NACIMIENTO</th>
+                                <th>DESCRIPCION_IDENTIFICACION</th>
+                                <th>SEXO</th>
+                                <th>CELULAR</th>
+                                <th>EMPRESA</th>
+                            </tr>
+                            </thead>
+                        </table>
                     </div>
+                    <p class="text-muted" style="margin-top:8px; margin-bottom:0;">
+                        Al subir el archivo se mostrará la previsualización del lote antes de aplicar los cambios.
+                    </p>
                 </div>
             </div>
         </div>
