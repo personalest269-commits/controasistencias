@@ -279,19 +279,30 @@ class PgAsistenciasController extends Controller
                     ->first();
 
                 $archivosCount = 0;
+                $archivos = [];
                 if ($lote) {
-                    $archivosCount = PgAsistenciaLoteArchivo::query()
+                    $archivosRows = PgAsistenciaLoteArchivo::query()
                         ->where('asistencia_lote_id', $lote->id)
                         ->where(function ($q) {
                             $q->whereNull('estado')->orWhere('estado', '<>', 'X');
                         })
-                        ->count();
+                        ->orderBy('created_at', 'desc')
+                        ->get(['id_archivo']);
+
+                    $archivosCount = $archivosRows->count();
+                    $archivos = $archivosRows
+                        ->pluck('id_archivo')
+                        ->filter()
+                        ->map(static fn($id) => (string) $id)
+                        ->values()
+                        ->all();
                 }
 
                 $deptEventRows[] = [
                     'evento' => $e,
                     'lote' => $lote,
                     'archivos_count' => $archivosCount,
+                    'archivos' => $archivos,
                 ];
             }
         }
