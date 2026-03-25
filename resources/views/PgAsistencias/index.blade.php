@@ -136,6 +136,23 @@
                                             <input type="file" name="dept_event_files[{{ $row['evento']->id }}][]" class="form-control" multiple accept="image/*" />
                                             <small class="text-muted">Sube 1 a 4 fotos (jpg/png/webp). El sistema valida el máximo total.</small>
                                         </div>
+                                        @if(!empty($row['archivos'] ?? []))
+                                            <div class="mt-3">
+                                                <div class="text-muted mb-2" style="font-size:12px;">Fotos cargadas:</div>
+                                                <div class="d-flex flex-wrap" style="gap:8px;">
+                                                    @foreach(($row['archivos'] ?? []) as $archivoId)
+                                                        <a href="{{ route('ArchivosDigitalesVer', ['id' => $archivoId]) }}" target="_blank" rel="noopener">
+                                                            <img
+                                                                src="{{ route('ArchivosDigitalesVer', ['id' => $archivoId]) }}"
+                                                                alt="Evidencia {{ $archivoId }}"
+                                                                style="width:70px;height:70px;object-fit:cover;border:1px solid #ddd;border-radius:6px;background:#f8f9fa;"
+                                                                onerror="this.style.display='none';"
+                                                            />
+                                                        </a>
+                                                    @endforeach
+                                                </div>
+                                            </div>
+                                        @endif
                                     </div>
                                 </div>
                             @endforeach
