@@ -40,6 +40,15 @@
         <div class="col-12">
             <h4 class="mb-0">Administrar asistencia masiva</h4>
             <small class="text-muted">Marca asistencia por evento. Si seleccionas un departamento, se pre-seleccionan todos los eventos aplicables por persona.</small>
+            <br>
+            <small class="text-muted">
+                Modo actual:
+                <strong>{{ ($attendanceMode ?? 'single_check') === 'dual_check' ? '2 checks (inicio + fin)' : '1 check (simple)' }}</strong>.
+                Leyenda:
+                @foreach(($attendanceLegend ?? []) as $code => $label)
+                    <span class="badge badge-light border">{{ $code }}: {{ $label }}</span>
+                @endforeach
+            </small>
         </div>
     </div>
 
@@ -62,7 +71,11 @@
                     <select id="departamento_id" name="departamento_id" class="form-control">
                         <option value="">-- General (todos) --</option>
                         @foreach($departamentos as $d)
-                            <option value="{{ $d->id }}" {{ ($departamentoId==$d->id)?'selected':'' }}>{{ $d->descripcion }}</option>
+                            @php
+                                $empresaNombre = trim((string) optional($d->empresa)->nombre);
+                                $deptLabel = $empresaNombre !== '' ? ($empresaNombre.' - '.$d->descripcion) : $d->descripcion;
+                            @endphp
+                            <option value="{{ $d->id }}" {{ ($departamentoId==$d->id)?'selected':'' }}>{{ $deptLabel }}</option>
                         @endforeach
                     </select>
                 </div>
@@ -85,9 +98,6 @@
                             <option value="{{ $evFiltro->id }}" {{ (($eventoId ?? null) == $evFiltro->id) ? 'selected' : '' }}>{{ $evFiltro->titulo }}</option>
                         @endforeach
                     </select>
-                </div>
-                <div class="col-md-1 text-right">
-                    <button class="btn btn-primary" type="submit"><i class="fas fa-search"></i></button>
                 </div>
             </div>
 
@@ -167,15 +177,6 @@
                 <div class="d-flex align-items-center justify-content-between">
                     <strong>Listado de empleados</strong>
                     <div class="d-flex align-items-center" style="gap:8px;">
-                        @if(empty($eventoId))
-                            <div style="min-width:320px;">
-                                <select id="general_events" class="form-control" multiple>
-                                    @foreach(($events ?? collect()) as $evGeneral)
-                                        <option value="{{ $evGeneral->id }}">{{ $evGeneral->titulo }}</option>
-                                    @endforeach
-                                </select>
-                            </div>
-                        @endif
                         <div class="custom-control custom-checkbox mr-2">
                             <input type="checkbox" class="custom-control-input" id="chkGeneral">
                             <label class="custom-control-label" for="chkGeneral">Marcar general</label>
@@ -242,6 +243,7 @@
                                                             $isSel = in_array($e->id, $sel, true);
                                                             $badge = '';
                                                             if (!empty($asist[$e->id]) && ($asist[$e->id]->estado_asistencia ?? null) === 'A') $badge = ' (A)';
+                                                            elseif (!empty($asist[$e->id]) && ($asist[$e->id]->estado_asistencia ?? null) === 'AI') $badge = ' (AI)';
                                                             elseif (!empty($asist[$e->id]) && ($asist[$e->id]->estado_asistencia ?? null) === 'F') $badge = ' (F)';
                                                             elseif (!empty($just[$e->id])) $badge = ' (JUSTIFICÓ)';
                                                         @endphp
@@ -253,7 +255,10 @@
                                     @endif
                                     @if(!$departamentoId)
                                         <td>
-                                            <input type="file" name="person_file[{{ $p->id }}]" class="form-control" accept="image/*,.pdf,.doc,.docx" />
+                                            <input type="file" name="person_file[{{ $p->id }}]" class="form-control js-person-file" accept="image/*,.pdf,.doc,.docx" data-preview-target="person-file-preview-{{ $p->id }}" />
+                                            <div id="person-file-preview-{{ $p->id }}" class="mt-2" style="display:none;">
+                                                <img src="" alt="Vista previa" style="width:72px;height:72px;object-fit:cover;border:1px solid #ddd;border-radius:6px;background:#f8f9fa;" />
+                                            </div>
                                             <small class="text-muted">Se aplica a los eventos seleccionados.</small>
                                         </td>
                                     @endif
@@ -326,6 +331,32 @@
             });
             $('.js-eventos').select2({ width:'100%', language:'es' });
 
+            $('.js-person-file').on('change', function(){
+                var input = this;
+                var targetId = $(input).data('preview-target');
+                if (!targetId) return;
+
+                var $preview = $('#'+targetId);
+                var $img = $preview.find('img');
+                var file = input.files && input.files[0] ? input.files[0] : null;
+
+                if (!file || !file.type || file.type.indexOf('image/') !== 0) {
+                    $img.attr('src', '');
+                    $preview.hide();
+                    return;
+                }
+
+                var oldUrl = $img.data('blobUrl');
+                if (oldUrl) {
+                    URL.revokeObjectURL(oldUrl);
+                }
+
+                var blobUrl = URL.createObjectURL(file);
+                $img.data('blobUrl', blobUrl);
+                $img.attr('src', blobUrl);
+                $preview.show();
+            });
+
             function noEventosMsg(){
                 alert('No existen eventos creados para la fecha seleccionada. Debe crear eventos para continuar.');
             }
@@ -364,44 +395,6 @@
                 $('.js-tgl').each(function(){
                     $(this).prop('checked', mark).trigger('change');
                 });
-            });
-
-            // Modo general de eventos:
-            // - lo seleccionado aquí se replica en cada fila (si el evento aplica a la persona)
-            // - si se quita del modo general, también se quita en cada fila
-            var lastGeneralEvents = [];
-            $('#general_events').on('change', function(){
-                var selectedGeneral = ($(this).val() || []).map(String);
-                var removedGeneral = lastGeneralEvents.filter(function(id){
-                    return selectedGeneral.indexOf(String(id)) === -1;
-                });
-
-                $('.js-eventos').each(function(){
-                    var $rowSelect = $(this);
-                    var current = ($rowSelect.val() || []).map(String);
-
-                    // Agregar los eventos seleccionados en modo general que existan en esta fila
-                    selectedGeneral.forEach(function(eid){
-                        var $opt = $rowSelect.find('option[value="'+eid+'"]');
-                        var isLocked = String($opt.data('locked')) === '1';
-                        if ($opt.length && !isLocked && current.indexOf(eid) === -1) {
-                            current.push(eid);
-                        }
-                    });
-
-                    // Quitar los eventos removidos en modo general
-                    removedGeneral.forEach(function(eid){
-                        var $opt = $rowSelect.find('option[value="'+eid+'"]');
-                        var isLocked = String($opt.data('locked')) === '1';
-                        if (!isLocked) {
-                            current = current.filter(function(v){ return String(v) !== String(eid); });
-                        }
-                    });
-
-                    $rowSelect.val(current).trigger('change');
-                });
-
-                lastGeneralEvents = selectedGeneral.slice();
             });
 
             // Auto-actualizar: guarda por persona cuando cambia selección (sin evidencias)

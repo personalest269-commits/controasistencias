@@ -11,9 +11,11 @@ use App\Models\PgEvento;
 use App\Models\PgJustificacionAsistencia;
 use App\Models\PgPersona;
 use App\Services\ArchivoDigitalService;
+use App\Services\AttendanceModeService;
 use App\Services\PackedAttendanceService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -147,7 +149,7 @@ class PgAsistenciasController extends Controller
             $eventoId = null;
         }
 
-        $departamentos = PgDepartamento::orderBy('descripcion')->get();
+        $departamentos = PgDepartamento::with('empresa:id,nombre')->orderBy('descripcion')->get();
 
         $personasQ = PgPersona::query()->where(function ($q) {
             $q->whereNull('estado')->orWhere('estado', '<>', 'X');
@@ -324,6 +326,8 @@ class PgAsistenciasController extends Controller
             'asistenciaMap' => $asistenciaMap,
             'justMap' => $justMap,
             'deptEventRows' => $deptEventRows,
+            'attendanceMode' => AttendanceModeService::mode(),
+            'attendanceLegend' => AttendanceModeService::legend(),
         ]);
     }
 
@@ -461,6 +465,8 @@ class PgAsistenciasController extends Controller
             'selectedByPerson' => $selectedByPerson,
             'asistenciaMap' => $asistenciaMap,
             'justMap' => $justMap,
+            'attendanceMode' => AttendanceModeService::mode(),
+            'attendanceLegend' => AttendanceModeService::legend(),
         ]);
     }
 
@@ -977,7 +983,10 @@ class PgAsistenciasController extends Controller
                     foreach ($files as $file) {
                         $idArchivo = ArchivoDigitalService::store($file, 'Evidencia asistencia depto ' . $departamentoId . ' evento ' . $eventoId, null, null, 'mysql_archivos');
                         if (!$idArchivo) {
-                            throw new \RuntimeException('No se pudo guardar una evidencia del evento ' . $eventoId);
+                            throw new \RuntimeException(
+                                'No se pudo guardar una evidencia del evento ' . $eventoId
+                                . '. Verifica tamaño permitido y formato de imagen.'
+                            );
                         }
                         PgAsistenciaLoteArchivo::create([
                             'asistencia_lote_id' => $lote->id,
