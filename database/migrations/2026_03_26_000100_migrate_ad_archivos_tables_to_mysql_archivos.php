@@ -50,7 +50,7 @@ return new class extends Migration
         $this->copyCatalogTable($sourceConnection, $targetConnection, 'ad_archivo_digital', 'id', [
             'id', 'tipo_documento_codigo', 'tipo_archivo_codigo', 'nombre_original', 'ruta', 'digital',
             'tipo_mime', 'extension', 'tamano', 'descripcion', 'estado', 'created_at', 'updated_at',
-        ]);
+        ], true);
     }
 
     public function down(): void
@@ -102,16 +102,19 @@ return new class extends Migration
         string $targetConnection,
         string $table,
         string $uniqueBy,
-        array $columns
+        array $columns,
+        bool $largePayload = false
     ): void {
         if (!Schema::connection($sourceConnection)->hasTable($table) || !Schema::connection($targetConnection)->hasTable($table)) {
             return;
         }
 
+        $chunkSize = $largePayload ? 20 : 300;
+
         DB::connection($sourceConnection)
             ->table($table)
             ->orderBy($uniqueBy)
-            ->chunkById(300, function ($rows) use ($targetConnection, $table, $uniqueBy, $columns) {
+            ->chunkById($chunkSize, function ($rows) use ($targetConnection, $table, $uniqueBy, $columns, $largePayload) {
                 $payload = [];
                 foreach ($rows as $row) {
                     $item = [];
@@ -121,7 +124,25 @@ return new class extends Migration
                     $payload[] = $item;
                 }
 
-                if (!empty($payload)) {
+                if (empty($payload)) {
+                    return;
+                }
+
+                if ($largePayload) {
+                    // Evita consultas ON DUPLICATE KEY enormes cuando `digital` contiene blobs/base64 grandes.
+                    foreach ($payload as $row) {
+                        $targetTable = DB::connection($targetConnection)->table($table);
+                        $exists = $targetTable->where($uniqueBy, $row[$uniqueBy])->exists();
+                        if ($exists) {
+                            DB::connection($targetConnection)
+                                ->table($table)
+                                ->where($uniqueBy, $row[$uniqueBy])
+                                ->update($row);
+                        } else {
+                            DB::connection($targetConnection)->table($table)->insert($row);
+                        }
+                    }
+                } else {
                     DB::connection($targetConnection)->table($table)->upsert($payload, [$uniqueBy], $columns);
                 }
             }, $uniqueBy);
