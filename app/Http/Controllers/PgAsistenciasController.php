@@ -323,6 +323,7 @@ class PgAsistenciasController extends Controller
             'allEventsDay' => $allEventsDay,
             'eventsByPerson' => $eventsByPerson,
             'selectedByPerson' => $selectedByPerson,
+            'checkStateByPerson' => $this->buildCheckStateByPerson($personas->pluck('id')->all(), $asistenciaMap),
             'asistenciaMap' => $asistenciaMap,
             'justMap' => $justMap,
             'deptEventRows' => $deptEventRows,
@@ -463,6 +464,7 @@ class PgAsistenciasController extends Controller
             'events' => $events,
             'eventsByPerson' => $eventsByPerson,
             'selectedByPerson' => $selectedByPerson,
+            'checkStateByPerson' => $this->buildCheckStateByPerson($personas->pluck('id')->all(), $asistenciaMap),
             'asistenciaMap' => $asistenciaMap,
             'justMap' => $justMap,
             'attendanceMode' => AttendanceModeService::mode(),
@@ -577,6 +579,7 @@ class PgAsistenciasController extends Controller
             foreach ($personEvents as $personaId => $selected) {
                 $personaId = (string) $personaId;
                 $selected = array_values(array_unique(array_filter((array) $selected)));
+                $selectedStatus = $this->resolveSelectedStatusFromRequest($request, $personaId);
 
                 $filePersona = $request->file("person_file.$personaId");
                 $idArchivoPersona = null;
@@ -584,7 +587,7 @@ class PgAsistenciasController extends Controller
                     $idArchivoPersona = ArchivoDigitalService::store($filePersona, 'Evidencia asistencia persona ' . $personaId, null, null, 'mysql_archivos');
                 }
 
-                $this->syncPackedAttendanceForPerson($personaId, $fecha, $selected, $applicableByPerson[$personaId] ?? [], $uid, $idArchivoPersona);
+                $this->syncPackedAttendanceForPerson($personaId, $fecha, $selected, $applicableByPerson[$personaId] ?? [], $uid, $idArchivoPersona, false, [], $selectedStatus);
             }
 
             if ($autoClose || $cerrarDia) {
@@ -634,6 +637,7 @@ class PgAsistenciasController extends Controller
         }
         $personaId = (string) $request->input('persona_id');
         $selected = array_values(array_unique(array_filter((array) $request->input('eventos', []))));
+        $selectedStatus = $this->resolveSelectedStatusFromRequest($request, $personaId);
 
         $uid = (string) (Auth::user()->id ?? '');
 
@@ -656,7 +660,7 @@ class PgAsistenciasController extends Controller
         DB::beginTransaction();
         try {
             $applicableByPerson = $this->getApplicableEventIdsByPerson($fecha, [$personaId]);
-            $this->syncPackedAttendanceForPerson($personaId, $fecha, $selected, $applicableByPerson[$personaId] ?? [], $uid, null);
+            $this->syncPackedAttendanceForPerson($personaId, $fecha, $selected, $applicableByPerson[$personaId] ?? [], $uid, null, false, [], $selectedStatus);
 
             if ((string) $request->input('auto_close') === '1') {
                 $this->rellenarFaltas($fecha, null, [$personaId], $uid);
@@ -832,6 +836,7 @@ class PgAsistenciasController extends Controller
             $eventoId = null;
         }
         $selected = array_values(array_unique(array_filter((array) $request->input('eventos', []))));
+        $selectedStatus = $this->resolveSelectedStatusFromRequest($request, $personaId);
 
         $uid = (string) (Auth::user()->id ?? '');
 
@@ -862,7 +867,7 @@ class PgAsistenciasController extends Controller
                 $selected = array_values(array_intersect(array_map('strval', $selected), $applicable));
                 $restrictToProvided = true;
             }
-            $this->syncPackedAttendanceForPerson($personaId, $fecha, $selected, $applicable, $uid, null, $restrictToProvided);
+            $this->syncPackedAttendanceForPerson($personaId, $fecha, $selected, $applicable, $uid, null, $restrictToProvided, [], $selectedStatus);
 
             // Si viene flag auto_close=1, cerramos faltas para esta persona
             if ((string) $request->input('auto_close') === '1') {
@@ -1007,6 +1012,7 @@ class PgAsistenciasController extends Controller
             foreach ($personEvents as $personaId => $selected) {
                 $personaId = (string) $personaId;
                 $selected = array_values(array_unique(array_filter((array) $selected)));
+                $selectedStatus = $this->resolveSelectedStatusFromRequest($request, $personaId);
                 $applicable = $applicableByPerson[$personaId] ?? [];
                 $restrictToProvided = false;
                 if ($eventoId) {
@@ -1029,7 +1035,8 @@ class PgAsistenciasController extends Controller
                     $uid,
                     $idArchivoPersona,
                     $restrictToProvided,
-                    $idArchivoByEvento
+                    $idArchivoByEvento,
+                    $selectedStatus
                 );
             }
 
@@ -1076,7 +1083,8 @@ class PgAsistenciasController extends Controller
         string $uid = '',
         ?string $idArchivo = null,
         bool $restrictToProvided = false,
-        array $idArchivoByEvento = []
+        array $idArchivoByEvento = [],
+        string $selectedStatus = 'A'
     ): void
     {
         $selected = array_values(array_unique(array_filter(array_map('strval', $selected))));
@@ -1097,7 +1105,7 @@ class PgAsistenciasController extends Controller
         }
 
         foreach ($applicableEventIds as $eventoId) {
-            $estado = isset($selectedSet[$eventoId]) ? 'A' : 'F';
+            $estado = isset($selectedSet[$eventoId]) ? $selectedStatus : 'F';
             $idArchivoEvento = null;
             if ($estado === 'A') {
                 $idArchivoEvento = $idArchivoByEvento[$eventoId] ?? $idArchivo;
@@ -1129,6 +1137,43 @@ class PgAsistenciasController extends Controller
                 );
             }
         }
+    }
+
+    private function resolveSelectedStatusFromRequest(Request $request, string $personaId): string
+    {
+        $checks = (array) $request->input('person_checks', []);
+        $byPerson = (array) ($checks[$personaId] ?? []);
+
+        $checkInicio = (string) ($byPerson['inicio'] ?? $request->input('check_inicio', '0')) === '1';
+        $checkFin = (string) ($byPerson['fin'] ?? $request->input('check_fin', '0')) === '1';
+
+        return AttendanceModeService::resolveStatusFromChecks($checkInicio, $checkFin);
+    }
+
+    private function buildCheckStateByPerson(array $personaIds, array $asistenciaMap): array
+    {
+        $out = [];
+        foreach ($personaIds as $pid) {
+            $inicio = false;
+            $fin = false;
+            $rows = (array) ($asistenciaMap[$pid] ?? []);
+            foreach ($rows as $row) {
+                $st = (string) ($row->estado_asistencia ?? '');
+                if ($st === 'A') {
+                    $inicio = true;
+                    $fin = true;
+                    break;
+                }
+                if ($st === 'AI') {
+                    $inicio = true;
+                    $fin = false;
+                    break;
+                }
+            }
+            $out[$pid] = ['inicio' => $inicio, 'fin' => $fin];
+        }
+
+        return $out;
     }
 
     private function getApplicableEventIdsByPerson(string $fecha, array $personaIds): array

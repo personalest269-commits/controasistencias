@@ -58,6 +58,24 @@
                                     <label>Items por página</label>
                                     <input type="number" class="form-control" name="configs[ITEMS_POR_PAGINA]" value="{{ old('configs.ITEMS_POR_PAGINA', optional($configs->where('clave','ITEMS_POR_PAGINA')->first())->valor ?? 30) }}" min="1" max="500">
                                 </div>
+
+                                <div class="form-group">
+                                    <label>Modo de registro de asistencia</label>
+                                    @php
+                                        $attendanceMode = old(
+                                            'configs.ASISTENCIA_MODO_REGISTRO',
+                                            optional($configs->where('clave','ASISTENCIA_MODO_REGISTRO')->first())->valor ?? 'single_check'
+                                        );
+                                    @endphp
+                                    <select class="form-control" name="configs[ASISTENCIA_MODO_REGISTRO]">
+                                        <option value="single_check" @if($attendanceMode === 'single_check') selected @endif>1 check (solo fin) → A / F</option>
+                                        <option value="dual_check" @if($attendanceMode === 'dual_check') selected @endif>2 checks (inicio + fin) → A / AI / F</option>
+                                    </select>
+                                    <small class="text-muted">
+                                        Este ajuste permite trabajar en ambas modalidades sin perder datos actuales.
+                                        En dual_check: 1y1=A, 1y0 o 0y1=AI, 0y0=F.
+                                    </small>
+                                </div>
                             </div>
 
                             <div class="col-md-6">
