@@ -78,7 +78,9 @@
     </form>
 
     <div class="mb-3">
-        @php($isDual = \App\Services\AttendanceModeService::usesDualCheck())
+        @php
+            $isDual = \App\Services\AttendanceModeService::usesDualCheck();
+        @endphp
         @if($isDual)
             <a class="btn btn-outline-warning btn-sm" href="{{ route('PgAsistenciasReportesDual', ['desde'=>$desde,'hasta'=>$hasta,'departamento_id'=>$departamentoId,'persona_id'=>$personaId]) }}">Resumen Dual (A/AI/F)</a>
             <a class="btn btn-outline-warning btn-sm" href="{{ route('PgAsistenciasReporteDiaEventoDual', ['desde'=>$desde,'hasta'=>$hasta,'departamento_id'=>$departamentoId,'persona_id'=>$personaId]) }}">Día y Evento Dual</a>
