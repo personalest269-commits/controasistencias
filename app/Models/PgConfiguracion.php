@@ -379,7 +379,7 @@ class PgConfiguracion extends Model
         if (ctype_digit($val)) {
             try {
                 $archivo = null;
-                if (Schema::hasTable('ad_archivo_digital')) {
+                if (Schema::connection('mysql_archivos')->hasTable('ad_archivo_digital')) {
                     $archivo = AdArchivoDigital::where('id', $val)->first();
                 }
 
@@ -453,7 +453,7 @@ class PgConfiguracion extends Model
         // Si el valor es un ID de ad_archivo_digital, servirlo por la ruta pública
         if (ctype_digit($path)) {
             try {
-                if (Schema::hasTable('ad_archivo_digital')) {
+                if (Schema::connection('mysql_archivos')->hasTable('ad_archivo_digital')) {
                     $archivo = AdArchivoDigital::where('id', $path)->first();
                     if ($archivo) {
                         // Ruta pública (el login no está autenticado)
@@ -515,7 +515,7 @@ class PgConfiguracion extends Model
         if ($val !== '' && ctype_digit($val)) {
             try {
                 $archivo = null;
-                if (Schema::hasTable('ad_archivo_digital')) {
+                if (Schema::connection('mysql_archivos')->hasTable('ad_archivo_digital')) {
                     $archivo = AdArchivoDigital::where('id', $val)->first();
                 }
 
@@ -607,7 +607,7 @@ class PgConfiguracion extends Model
     {
         // 1) logo_reportes desde ad_archivo_digital
         $id = self::reportLogoArchivoId();
-        if ($id && Schema::hasTable('ad_archivo_digital')) {
+        if ($id && Schema::connection('mysql_archivos')->hasTable('ad_archivo_digital')) {
             try {
                 $archivo = AdArchivoDigital::where('id', $id)->first();
                 if ($archivo && !empty($archivo->digital)) {

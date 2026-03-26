@@ -1038,7 +1038,8 @@ if(Auth::attempt(['usuario' => $usuario, 'password' => $request->input('login_pa
 
             // Soportar entornos donde ad_archivo_digital.id aún sea BIGINT (auto increment)
             // y entornos donde ya fue convertido a VARCHAR(10).
-            $col = DB::selectOne("SHOW COLUMNS FROM `ad_archivo_digital` LIKE 'id'");
+            $archivosConnection = DB::connection('mysql_archivos');
+            $col = $archivosConnection->selectOne("SHOW COLUMNS FROM `ad_archivo_digital` LIKE 'id'");
             $type = strtolower((string) ($col->Type ?? ''));
             $isNumericId = str_contains($type, 'int');
 
@@ -1046,7 +1047,7 @@ if(Auth::attempt(['usuario' => $usuario, 'password' => $request->input('login_pa
                 $existingId = null;
                 if (!empty($user->id_archivo) && ctype_digit((string) $user->id_archivo)) {
                     $candidate = (int) $user->id_archivo;
-                    if (DB::table('ad_archivo_digital')->where('id', $candidate)->exists()) {
+                    if ($archivosConnection->table('ad_archivo_digital')->where('id', $candidate)->exists()) {
                         $existingId = $candidate;
                     }
                 }
@@ -1066,13 +1067,13 @@ if(Auth::attempt(['usuario' => $usuario, 'password' => $request->input('login_pa
                 ];
 
                 if ($existingId !== null) {
-                    DB::table('ad_archivo_digital')->where('id', $existingId)->update($payload);
+                    $archivosConnection->table('ad_archivo_digital')->where('id', $existingId)->update($payload);
                     return (string) $existingId;
                 }
 
                 $payload['created_at'] = $now;
-                DB::table('ad_archivo_digital')->insert($payload);
-                return (string) DB::getPdo()->lastInsertId();
+                $archivosConnection->table('ad_archivo_digital')->insert($payload);
+                return (string) $archivosConnection->getPdo()->lastInsertId();
             }
 
             // ID varchar(10): usar Eloquent + generador
