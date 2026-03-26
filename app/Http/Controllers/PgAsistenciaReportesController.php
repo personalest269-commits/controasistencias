@@ -411,7 +411,7 @@ class PgAsistenciaReportesController extends Controller
             'personaId' => $personaId,
             'departamentos' => $departamentos,
             'personasSelect' => $personasSelect,
-            'data' => $data,
+            'months' => $data['months'],
         ]);
     }
 
