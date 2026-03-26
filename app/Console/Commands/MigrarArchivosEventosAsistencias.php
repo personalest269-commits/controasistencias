@@ -9,25 +9,12 @@ use Illuminate\Support\Facades\Schema;
 
 class MigrarArchivosEventosAsistencias extends Command
 {
-    /**
-     * The name and signature of the console command.
-     *
-     * @var string
-     */
     protected $signature = 'archivos:migrar-eventos-asistencias
                             {--chunk=500 : Cantidad de IDs por lote}
                             {--dry-run : Solo mostrar conteos, sin insertar en esquema destino}';
 
-    /**
-     * The console command description.
-     *
-     * @var string
-     */
     protected $description = 'Migra a mysql_archivos archivos referenciados desde pg_asistencia_evento, pg_asistencia_lote y pg_asistencia_lote_archivo';
 
-    /**
-     * Execute the console command.
-     */
     public function handle(): int
     {
         $targetConnection = 'mysql_archivos';
@@ -41,17 +28,29 @@ class MigrarArchivosEventosAsistencias extends Command
 
         $allIds = $this->idsDeEventosYAsistencias();
         $totalIds = count($allIds);
+
         $migrados = 0;
         $faltantes = 0;
+        $docNull = 0;
+        $docFilled = 0;
+        $tipoNull = 0;
+        $tipoFilled = 0;
 
         foreach (array_chunk($allIds, $chunk) as $batchIds) {
-            [$migradosLote, $faltantesLote] = $this->migrarLote($batchIds, $targetConnection, $dryRun);
-            $migrados += $migradosLote;
-            $faltantes += $faltantesLote;
+            $stats = $this->migrarLote($batchIds, $targetConnection, $dryRun);
+            $migrados += $stats['migrados'];
+            $faltantes += $stats['faltantes'];
+            $docNull += $stats['doc_null'];
+            $docFilled += $stats['doc_filled'];
+            $tipoNull += $stats['tipo_null'];
+            $tipoFilled += $stats['tipo_filled'];
         }
 
         $this->info('IDs únicos detectados (eventos/asistencias): ' . $totalIds);
         $this->info(($dryRun ? 'Registros analizables' : 'Registros migrados/actualizados') . ': ' . $migrados);
+        $this->info('tipo_documento_codigo -> con valor: ' . $docFilled . ' | nulo: ' . $docNull);
+        $this->info('tipo_archivo_codigo   -> con valor: ' . $tipoFilled . ' | nulo: ' . $tipoNull);
+
         if ($faltantes > 0) {
             $this->warn('IDs sin fuente en ad_archivo_digital: ' . $faltantes);
         }
@@ -63,7 +62,6 @@ class MigrarArchivosEventosAsistencias extends Command
     {
         $ids = [];
 
-        // 1) Directos: pg_asistencia_lote_archivo.id_archivo
         if (Schema::hasTable('pg_asistencia_lote_archivo') && Schema::hasColumn('pg_asistencia_lote_archivo', 'id_archivo')) {
             DB::table('pg_asistencia_lote_archivo')
                 ->select('id_archivo')
@@ -79,7 +77,6 @@ class MigrarArchivosEventosAsistencias extends Command
                 }, 'id');
         }
 
-        // 2) Compactos: pg_asistencia_evento.id_archivo (JSON/CSV o único)
         if (Schema::hasTable('pg_asistencia_evento') && Schema::hasColumn('pg_asistencia_evento', 'id_archivo')) {
             DB::table('pg_asistencia_evento')
                 ->select('id_archivo')
@@ -107,7 +104,6 @@ class MigrarArchivosEventosAsistencias extends Command
                 }, 'id');
         }
 
-        // 3) Opcional: pg_asistencia_lote.id_archivo (si la columna existe en tu BD)
         if (Schema::hasTable('pg_asistencia_lote') && Schema::hasColumn('pg_asistencia_lote', 'id_archivo')) {
             DB::table('pg_asistencia_lote')
                 ->select('id_archivo')
@@ -149,11 +145,30 @@ class MigrarArchivosEventosAsistencias extends Command
         $faltantes = count($uniqueIds) - $rows->count();
 
         if ($rows->isEmpty()) {
-            return [0, $faltantes];
+            return ['migrados' => 0, 'faltantes' => $faltantes, 'doc_null' => 0, 'doc_filled' => 0, 'tipo_null' => 0, 'tipo_filled' => 0];
+        }
+
+        $docNull = 0;
+        $docFilled = 0;
+        $tipoNull = 0;
+        $tipoFilled = 0;
+
+        foreach ($rows as $row) {
+            if (empty($row->tipo_documento_codigo)) {
+                $docNull++;
+            } else {
+                $docFilled++;
+            }
+
+            if (empty($row->tipo_archivo_codigo)) {
+                $tipoNull++;
+            } else {
+                $tipoFilled++;
+            }
         }
 
         if ($dryRun) {
-            return [$rows->count(), $faltantes];
+            return ['migrados' => $rows->count(), 'faltantes' => $faltantes, 'doc_null' => $docNull, 'doc_filled' => $docFilled, 'tipo_null' => $tipoNull, 'tipo_filled' => $tipoFilled];
         }
 
         $payload = $rows->map(function ($row) {
@@ -195,6 +210,6 @@ class MigrarArchivosEventosAsistencias extends Command
                 ]
             );
 
-        return [count($payload), $faltantes];
+        return ['migrados' => count($payload), 'faltantes' => $faltantes, 'doc_null' => $docNull, 'doc_filled' => $docFilled, 'tipo_null' => $tipoNull, 'tipo_filled' => $tipoFilled];
     }
 }
