@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Services\PackedAttendanceService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -22,7 +23,7 @@ class MigrarArchivosEventosAsistencias extends Command
      *
      * @var string
      */
-    protected $description = 'Migra a mysql_archivos solo los archivos usados por eventos y asistencias';
+    protected $description = 'Migra a mysql_archivos archivos referenciados desde pg_asistencia_evento, pg_asistencia_lote y pg_asistencia_lote_archivo';
 
     /**
      * Execute the console command.
@@ -38,37 +39,18 @@ class MigrarArchivosEventosAsistencias extends Command
             return self::FAILURE;
         }
 
-        $idCursor = $this->idsDeEventosYAsistencias()->cursor();
-
-        $batchIds = [];
-        $totalIds = 0;
+        $allIds = $this->idsDeEventosYAsistencias();
+        $totalIds = count($allIds);
         $migrados = 0;
         $faltantes = 0;
 
-        foreach ($idCursor as $row) {
-            $id = trim((string) ($row->id ?? ''));
-            if ($id === '') {
-                continue;
-            }
-
-            $batchIds[] = $id;
-            $totalIds++;
-
-            if (count($batchIds) >= $chunk) {
-                [$migradosLote, $faltantesLote] = $this->migrarLote($batchIds, $targetConnection, $dryRun);
-                $migrados += $migradosLote;
-                $faltantes += $faltantesLote;
-                $batchIds = [];
-            }
-        }
-
-        if (!empty($batchIds)) {
+        foreach (array_chunk($allIds, $chunk) as $batchIds) {
             [$migradosLote, $faltantesLote] = $this->migrarLote($batchIds, $targetConnection, $dryRun);
             $migrados += $migradosLote;
             $faltantes += $faltantesLote;
         }
 
-        $this->info('IDs detectados (eventos/asistencias): ' . $totalIds);
+        $this->info('IDs únicos detectados (eventos/asistencias): ' . $totalIds);
         $this->info(($dryRun ? 'Registros analizables' : 'Registros migrados/actualizados') . ': ' . $migrados);
         if ($faltantes > 0) {
             $this->warn('IDs sin fuente en ad_archivo_digital: ' . $faltantes);
@@ -77,21 +59,83 @@ class MigrarArchivosEventosAsistencias extends Command
         return self::SUCCESS;
     }
 
-    private function idsDeEventosYAsistencias()
+    private function idsDeEventosYAsistencias(): array
     {
-        $asistenciaEvento = DB::table('pg_asistencia_evento')
-            ->selectRaw('TRIM(id_archivo) as id')
-            ->whereNotNull('id_archivo')
-            ->whereRaw("TRIM(id_archivo) <> ''");
+        $ids = [];
 
-        $asistenciaLote = DB::table('pg_asistencia_lote_archivo')
-            ->selectRaw('TRIM(id_archivo) as id')
-            ->whereNotNull('id_archivo')
-            ->whereRaw("TRIM(id_archivo) <> ''");
+        // 1) Directos: pg_asistencia_lote_archivo.id_archivo
+        if (Schema::hasTable('pg_asistencia_lote_archivo') && Schema::hasColumn('pg_asistencia_lote_archivo', 'id_archivo')) {
+            DB::table('pg_asistencia_lote_archivo')
+                ->select('id_archivo')
+                ->whereNotNull('id_archivo')
+                ->orderBy('id')
+                ->chunkById(1000, function ($rows) use (&$ids) {
+                    foreach ($rows as $row) {
+                        $id = trim((string) ($row->id_archivo ?? ''));
+                        if ($id !== '') {
+                            $ids[$id] = true;
+                        }
+                    }
+                }, 'id');
+        }
 
-        return $asistenciaEvento
-            ->union($asistenciaLote)
-            ->orderBy('id');
+        // 2) Compactos: pg_asistencia_evento.id_archivo (JSON/CSV o único)
+        if (Schema::hasTable('pg_asistencia_evento') && Schema::hasColumn('pg_asistencia_evento', 'id_archivo')) {
+            DB::table('pg_asistencia_evento')
+                ->select('id_archivo')
+                ->whereNotNull('id_archivo')
+                ->orderBy('id')
+                ->chunkById(1000, function ($rows) use (&$ids) {
+                    foreach ($rows as $row) {
+                        $raw = (string) ($row->id_archivo ?? '');
+                        if (trim($raw) === '') {
+                            continue;
+                        }
+                        try {
+                            $decoded = PackedAttendanceService::decodeList($raw);
+                        } catch (\Throwable $e) {
+                            $decoded = [trim($raw)];
+                        }
+
+                        foreach ($decoded as $id) {
+                            $id = trim((string) $id);
+                            if ($id !== '') {
+                                $ids[$id] = true;
+                            }
+                        }
+                    }
+                }, 'id');
+        }
+
+        // 3) Opcional: pg_asistencia_lote.id_archivo (si la columna existe en tu BD)
+        if (Schema::hasTable('pg_asistencia_lote') && Schema::hasColumn('pg_asistencia_lote', 'id_archivo')) {
+            DB::table('pg_asistencia_lote')
+                ->select('id_archivo')
+                ->whereNotNull('id_archivo')
+                ->orderBy('id')
+                ->chunkById(1000, function ($rows) use (&$ids) {
+                    foreach ($rows as $row) {
+                        $raw = (string) ($row->id_archivo ?? '');
+                        if (trim($raw) === '') {
+                            continue;
+                        }
+                        try {
+                            $decoded = PackedAttendanceService::decodeList($raw);
+                        } catch (\Throwable $e) {
+                            $decoded = [trim($raw)];
+                        }
+
+                        foreach ($decoded as $id) {
+                            $id = trim((string) $id);
+                            if ($id !== '') {
+                                $ids[$id] = true;
+                            }
+                        }
+                    }
+                }, 'id');
+        }
+
+        return array_keys($ids);
     }
 
     private function migrarLote(array $ids, string $targetConnection, bool $dryRun): array

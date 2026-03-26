@@ -581,7 +581,7 @@ class PgAsistenciasController extends Controller
                 $filePersona = $request->file("person_file.$personaId");
                 $idArchivoPersona = null;
                 if ($filePersona) {
-                    $idArchivoPersona = ArchivoDigitalService::store($filePersona, 'Evidencia asistencia persona ' . $personaId);
+                    $idArchivoPersona = ArchivoDigitalService::store($filePersona, 'Evidencia asistencia persona ' . $personaId, null, null, 'mysql_archivos');
                 }
 
                 $this->syncPackedAttendanceForPerson($personaId, $fecha, $selected, $applicableByPerson[$personaId] ?? [], $uid, $idArchivoPersona);
@@ -981,20 +981,7 @@ class PgAsistenciasController extends Controller
                     }
 
                     foreach ($files as $file) {
-                        if (!($file instanceof UploadedFile)) {
-                            throw new \RuntimeException('Archivo de evidencia inválido para el evento ' . $eventoId . '.');
-                        }
-                        if (!$file->isValid()) {
-                            throw new \RuntimeException(
-                                'No se pudo subir una evidencia del evento ' . $eventoId . ': ' . $file->getErrorMessage()
-                            );
-                        }
-
-                        $idArchivo = ArchivoDigitalService::store(
-                            $file,
-                            'Evidencia asistencia depto ' . $departamentoId . ' evento ' . $eventoId,
-                            '00001'
-                        );
+                        $idArchivo = ArchivoDigitalService::store($file, 'Evidencia asistencia depto ' . $departamentoId . ' evento ' . $eventoId, null, null, 'mysql_archivos');
                         if (!$idArchivo) {
                             throw new \RuntimeException(
                                 'No se pudo guardar una evidencia del evento ' . $eventoId
@@ -1031,11 +1018,7 @@ class PgAsistenciasController extends Controller
                 $filePersona = $request->file("person_file.$personaId");
                 $idArchivoPersona = null;
                 if (!$departamentoId && $filePersona) {
-                    $idArchivoPersona = ArchivoDigitalService::store(
-                        $filePersona,
-                        'Evidencia asistencia persona ' . $personaId,
-                        '00001'
-                    );
+                    $idArchivoPersona = ArchivoDigitalService::store($filePersona, 'Evidencia asistencia persona ' . $personaId, null, null, 'mysql_archivos');
                 }
 
                 $this->syncPackedAttendanceForPerson(
