@@ -575,7 +575,7 @@ class PgAsistenciasController extends Controller
                 $filePersona = $request->file("person_file.$personaId");
                 $idArchivoPersona = null;
                 if ($filePersona) {
-                    $idArchivoPersona = ArchivoDigitalService::store($filePersona, 'Evidencia asistencia persona ' . $personaId);
+                    $idArchivoPersona = ArchivoDigitalService::store($filePersona, 'Evidencia asistencia persona ' . $personaId, null, null, 'mysql_archivos');
                 }
 
                 $this->syncPackedAttendanceForPerson($personaId, $fecha, $selected, $applicableByPerson[$personaId] ?? [], $uid, $idArchivoPersona);
@@ -975,7 +975,7 @@ class PgAsistenciasController extends Controller
                     }
 
                     foreach ($files as $file) {
-                        $idArchivo = ArchivoDigitalService::store($file, 'Evidencia asistencia depto ' . $departamentoId . ' evento ' . $eventoId);
+                        $idArchivo = ArchivoDigitalService::store($file, 'Evidencia asistencia depto ' . $departamentoId . ' evento ' . $eventoId, null, null, 'mysql_archivos');
                         if (!$idArchivo) {
                             throw new \RuntimeException('No se pudo guardar una evidencia del evento ' . $eventoId);
                         }
@@ -1009,7 +1009,7 @@ class PgAsistenciasController extends Controller
                 $filePersona = $request->file("person_file.$personaId");
                 $idArchivoPersona = null;
                 if (!$departamentoId && $filePersona) {
-                    $idArchivoPersona = ArchivoDigitalService::store($filePersona, 'Evidencia asistencia persona ' . $personaId);
+                    $idArchivoPersona = ArchivoDigitalService::store($filePersona, 'Evidencia asistencia persona ' . $personaId, null, null, 'mysql_archivos');
                 }
 
                 $this->syncPackedAttendanceForPerson(
