@@ -21,6 +21,7 @@ class Kernel extends ConsoleKernel
 
         \App\Console\Commands\PgCerrarAsistenciaDia::class,
         \App\Console\Commands\PgMigrarAsistenciaCompacta::class,
+        \App\Console\Commands\MigrarArchivosEventosAsistencias::class,
     ];
     /**
      * Define the application's command schedule.

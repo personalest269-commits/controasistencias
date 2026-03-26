@@ -55,6 +55,26 @@ class ArchivosDigitalesController extends Controller
         parent::__construct();
     }
 
+    private function findArchivoById(string $id): ?AdArchivoDigital
+    {
+        $id = trim($id);
+        if ($id === '') {
+            return null;
+        }
+
+        $archivo = AdArchivoDigital::where('id', $id)->first();
+        if ($archivo) {
+            return $archivo;
+        }
+
+        try {
+            $archivoAlt = (new AdArchivoDigital())->setConnection('mysql_archivos');
+            return $archivoAlt->newQuery()->where('id', $id)->first();
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
     public function Index(Request $request)
     {
         // Symfony 7.4+ deprecates Request::get(), use query/request bags explicitly.
@@ -160,7 +180,10 @@ class ArchivosDigitalesController extends Controller
 
     public function Ver($id)
     {
-        $archivo = AdArchivoDigital::where('id', $id)->firstOrFail();
+        $archivo = $this->findArchivoById((string) $id);
+        if (!$archivo) {
+            abort(404);
+        }
 
         // Si ya está en DB, se descifra y se sirve
         if (!empty($archivo->digital)) {
@@ -232,7 +255,10 @@ class ArchivosDigitalesController extends Controller
 
     public function Edit($id)
     {
-        $archivo = AdArchivoDigital::where('id', $id)->firstOrFail();
+        $archivo = $this->findArchivoById((string) $id);
+        if (!$archivo) {
+            abort(404);
+        }
 
         return view('ArchivosDigitales.edit', [
             'archivo' => $archivo,
@@ -243,7 +269,10 @@ class ArchivosDigitalesController extends Controller
 
     public function Update(Request $request, $id)
     {
-        $archivo = AdArchivoDigital::where('id', $id)->firstOrFail();
+        $archivo = $this->findArchivoById((string) $id);
+        if (!$archivo) {
+            abort(404);
+        }
 
         $request->validate([
             'archivo' => ['nullable', 'file', 'max:51200'],
@@ -337,7 +366,10 @@ class ArchivosDigitalesController extends Controller
 
     public function Delete(Request $request, $id)
     {
-        $archivo = AdArchivoDigital::where('id', $id)->firstOrFail();
+        $archivo = $this->findArchivoById((string) $id);
+        if (!$archivo) {
+            abort(404);
+        }
         $archivo->estado = 'X';
         $archivo->save();
 

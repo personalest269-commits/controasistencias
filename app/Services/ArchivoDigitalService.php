@@ -17,8 +17,13 @@ class ArchivoDigitalService
     /**
      * @return string|null id del archivo guardado
      */
-    public static function store(UploadedFile $file, ?string $descripcion = null, ?string $tipoDocumento = null, ?string $tipoArchivo = null): ?string
-    {
+    public static function store(
+        UploadedFile $file,
+        ?string $descripcion = null,
+        ?string $tipoDocumento = null,
+        ?string $tipoArchivo = null,
+        ?string $connection = null
+    ): ?string {
         try {
             $binary = @file_get_contents($file->getRealPath());
             if ($binary === false) {
@@ -36,6 +41,10 @@ class ArchivoDigitalService
             $mime = $file->getClientMimeType() ?: 'application/octet-stream';
 
             $archivo = new AdArchivoDigital();
+            if ($connection && trim($connection) !== '') {
+                $archivo->setConnection($connection);
+            }
+
             $archivo->tipo_documento_codigo = $tipoDocumento;
             $archivo->tipo_archivo_codigo = $tipoArchivo;
             $archivo->nombre_original = $file->getClientOriginalName();
@@ -52,6 +61,7 @@ class ArchivoDigitalService
         } catch (\Throwable $e) {
             \Log::warning('No se pudo guardar archivo en ad_archivo_digital', [
                 'error' => $e->getMessage(),
+                'connection' => $connection,
             ]);
             return null;
         }
