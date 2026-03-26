@@ -150,6 +150,7 @@
                                     $asist = $asistenciaMap[$p->id] ?? [];
                                     $just = $justMap[$p->id] ?? [];
                                     $deptName = $p->departamento ? $p->departamento->descripcion : '';
+                                    $checks = $checkStateByPerson[$p->id] ?? ['inicio' => !empty($sel), 'fin' => !empty($sel)];
                                 @endphp
                                 <tr>
                                     <td>
@@ -158,7 +159,18 @@
                                     <td>{{ $p->nombre_completo }}</td>
                                     <td>{{ $deptName }}</td>
                                     <td class="text-center">
-                                        <input type="checkbox" class="js-tgl" data-persona="{{ $p->id }}" {{ !empty($sel) ? 'checked' : '' }} />
+                                        @if(($attendanceMode ?? 'single_check') === 'dual_check')
+                                            <div class="d-flex justify-content-center" style="gap:10px;">
+                                                <label class="mb-0"><input type="checkbox" class="js-check-inicio" data-persona="{{ $p->id }}" {{ !empty($checks['inicio']) ? 'checked' : '' }}> I</label>
+                                                <label class="mb-0"><input type="checkbox" class="js-check-fin" data-persona="{{ $p->id }}" {{ !empty($checks['fin']) ? 'checked' : '' }}> F</label>
+                                            </div>
+                                            <input type="hidden" name="person_checks[{{ $p->id }}][inicio]" class="js-check-inicio-hidden" data-persona="{{ $p->id }}" value="{{ !empty($checks['inicio']) ? '1' : '0' }}">
+                                            <input type="hidden" name="person_checks[{{ $p->id }}][fin]" class="js-check-fin-hidden" data-persona="{{ $p->id }}" value="{{ !empty($checks['fin']) ? '1' : '0' }}">
+                                        @else
+                                            <input type="checkbox" class="js-tgl" data-persona="{{ $p->id }}" {{ !empty($sel) ? 'checked' : '' }} />
+                                            <input type="hidden" name="person_checks[{{ $p->id }}][inicio]" class="js-check-inicio-hidden" data-persona="{{ $p->id }}" value="0">
+                                            <input type="hidden" name="person_checks[{{ $p->id }}][fin]" class="js-check-fin-hidden" data-persona="{{ $p->id }}" value="{{ !empty($sel) ? '1' : '0' }}">
+                                        @endif
                                     </td>
                                     <td>
                                         <select name="person_events[{{ $p->id }}][]" class="form-control js-eventos" multiple data-persona="{{ $p->id }}">
@@ -270,8 +282,27 @@
             $('.js-tgl').on('change', function(){
                 var pid = $(this).data('persona');
                 var $sel = $('.js-eventos[data-persona="'+pid+'"]');
+                $('.js-check-fin-hidden[data-persona="'+pid+'"]').val($(this).is(':checked') ? '1' : '0');
                 if ($(this).is(':checked')) {
                     // seleccionar todo
+                    $sel.find('option').prop('selected', true);
+                } else {
+                    $sel.val(null);
+                }
+                $sel.trigger('change');
+            });
+
+            $('.js-check-inicio, .js-check-fin').on('change', function(){
+                var pid = $(this).data('persona');
+                var $sel = $('.js-eventos[data-persona="'+pid+'"]');
+                var checkInicio = $('.js-check-inicio[data-persona="'+pid+'"]').is(':checked');
+                var checkFin = $('.js-check-fin[data-persona="'+pid+'"]').is(':checked');
+                var enabled = checkInicio || checkFin;
+
+                $('.js-check-inicio-hidden[data-persona="'+pid+'"]').val(checkInicio ? '1' : '0');
+                $('.js-check-fin-hidden[data-persona="'+pid+'"]').val(checkFin ? '1' : '0');
+
+                if (enabled) {
                     $sel.find('option').prop('selected', true);
                 } else {
                     $sel.val(null);
@@ -282,9 +313,15 @@
             // Marcar general (selecciona todo/limpia en todas las filas)
             $('#chkGeneral').on('change', function(){
                 var mark = $(this).is(':checked');
-                $('.js-tgl').each(function(){
-                    $(this).prop('checked', mark).trigger('change');
-                });
+                if ($('.js-tgl').length) {
+                    $('.js-tgl').each(function(){
+                        $(this).prop('checked', mark).trigger('change');
+                    });
+                } else {
+                    $('.js-check-inicio, .js-check-fin').each(function(){
+                        $(this).prop('checked', mark).trigger('change');
+                    });
+                }
             });
 
             // Auto-actualizar: guarda por persona cuando cambia selección (sin evidencias)
@@ -300,6 +337,8 @@
                         empresa_id: '{{ $empresaId }}',
                         persona_id: pid,
                         eventos: eventos,
+                        check_inicio: $('.js-check-inicio-hidden[data-persona="'+pid+'"]').val() || '0',
+                        check_fin: $('.js-check-fin-hidden[data-persona="'+pid+'"]').val() || '0',
                         auto_close: $('#chkAutoSave').is(':checked') ? '1' : '0'
                     }
                 });
@@ -325,6 +364,9 @@
                 debounceSave($(this).data('persona'));
             });
             $('.js-tgl').on('change', function(){
+                debounceSave($(this).data('persona'));
+            });
+            $('.js-check-inicio, .js-check-fin').on('change', function(){
                 debounceSave($(this).data('persona'));
             });
         });
