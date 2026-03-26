@@ -175,11 +175,8 @@ class ImportacionesEmpresaController extends Controller
         [$empresaId, $empresaNombre] = $this->resolveUserEmpresaContext();
 
         $headers = [
-            'ID','ID_PERSONA','NOMBRES','APELLIDO1','APELLIDO2','TIPO','DIRECCION','NOMBRE','CARGO','CODIGO_CARGO',
-            'VIGENCIA_DESDE','VIGENCIA_HASTA','VIGENTE','COD_DEPARTAMENTO','COD_DEPARTAMENTO_ACTUAL','CODIGO_DEPARTAMENTO_PADRE',
-            'DEPARTAMENTO','EMAIL','EMAIL_LABORAL','ID_RELACION_LABORAL','COD_MOTIVO_ACCION_PERSONAL','CODIGO_PUESTO',
-            'CODIGO_PUESTO_JERARQUIA','RESPONSABLE','IDENTIFICACION','CODIGO_PROGRAMA','DESCRIPCION_PROGRAMA','FECHA_NACIMIENTO',
-            'TIPO_IDENTIFICACION','DESCRIPCION_IDENTIFICACION','COD_ESTADO_CIVIL','DESCRIPCION_ESTADO_CIVIL','FECHA_INGRESO','SEXO','CELULAR','EMPRESA'
+            'NOMBRES','APELLIDO1','APELLIDO2','DIRECCION','VIGENTE','COD_DEPARTAMENTO','DEPARTAMENTO',
+            'EMAIL','IDENTIFICACION','FECHA_NACIMIENTO','DESCRIPCION_IDENTIFICACION','SEXO','CELULAR','EMPRESA'
         ];
 
         $spreadsheet = new Spreadsheet();
@@ -190,9 +187,9 @@ class ImportacionesEmpresaController extends Controller
             $sheet->setCellValue($col . '1', $h);
         }
 
-        $sheet->setCellValue('M2', 'S');
+        $sheet->setCellValue('E2', 'S');
         if ($empresaNombre) {
-            $sheet->setCellValue('AJ2', $empresaNombre);
+            $sheet->setCellValue('N2', $empresaNombre);
         }
 
         $filename = 'plantilla_importacion_empresa_' . ($empresaId ?: 'general') . '.xlsx';

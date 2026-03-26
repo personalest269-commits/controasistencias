@@ -25,8 +25,21 @@ class ArchivoDigitalService
         ?string $connection = null
     ): ?string {
         try {
+            if (!$file->isValid()) {
+                \Log::warning('Archivo inválido al guardar en ad_archivo_digital', [
+                    'error_code' => $file->getError(),
+                    'error_message' => $file->getErrorMessage(),
+                    'original_name' => $file->getClientOriginalName(),
+                ]);
+                return null;
+            }
+
             $binary = @file_get_contents($file->getRealPath());
             if ($binary === false) {
+                \Log::warning('No se pudo leer el temporal del archivo para ad_archivo_digital', [
+                    'original_name' => $file->getClientOriginalName(),
+                    'tmp_path' => $file->getRealPath(),
+                ]);
                 return null;
             }
 
@@ -39,6 +52,13 @@ class ArchivoDigitalService
             }
 
             $mime = $file->getClientMimeType() ?: 'application/octet-stream';
+            $tipoDocumentoCodigo = $tipoDocumento;
+            if ($tipoDocumentoCodigo === null && str_starts_with(strtolower($mime), 'image/')) {
+                // Convención del catálogo ad_tipo_documento:
+                // 00001 = FOTOGRAFÍA (según datos semilla / ambientes productivos).
+                // Esto evita rechazos por validaciones/trigger que esperan tipo_documento para imágenes.
+                $tipoDocumentoCodigo = '00001';
+            }
 
             $archivo = new AdArchivoDigital();
             if ($connection && trim($connection) !== '') {
