@@ -78,11 +78,15 @@
     </form>
 
     <div class="mb-3">
-        <a class="btn btn-outline-primary btn-sm" href="{{ route('PgAsistenciasReporteDiaEvento', ['desde'=>$desde,'hasta'=>$hasta,'departamento_id'=>$departamentoId,'persona_id'=>$personaId]) }}">Asistencia por Día y Evento</a>
-        <a class="btn btn-outline-primary btn-sm" href="{{ route('PgAsistenciasReporteMes', ['anio'=>\Carbon\Carbon::parse($hasta)->year, 'departamento_id'=>$departamentoId,'persona_id'=>$personaId]) }}">Asistencia por Mes</a>
-        <a class="btn btn-outline-warning btn-sm" href="{{ route('PgAsistenciasReportesDual', ['desde'=>$desde,'hasta'=>$hasta,'departamento_id'=>$departamentoId,'persona_id'=>$personaId]) }}">Resumen Dual (A/AI/F)</a>
-        <a class="btn btn-outline-warning btn-sm" href="{{ route('PgAsistenciasReporteDiaEventoDual', ['desde'=>$desde,'hasta'=>$hasta,'departamento_id'=>$departamentoId,'persona_id'=>$personaId]) }}">Día y Evento Dual</a>
-        <a class="btn btn-outline-warning btn-sm" href="{{ route('PgAsistenciasReporteMesDual', ['anio'=>\Carbon\Carbon::parse($hasta)->year, 'departamento_id'=>$departamentoId,'persona_id'=>$personaId]) }}">Mes Dual</a>
+        @php($isDual = \App\Services\AttendanceModeService::usesDualCheck())
+        @if($isDual)
+            <a class="btn btn-outline-warning btn-sm" href="{{ route('PgAsistenciasReportesDual', ['desde'=>$desde,'hasta'=>$hasta,'departamento_id'=>$departamentoId,'persona_id'=>$personaId]) }}">Resumen Dual (A/AI/F)</a>
+            <a class="btn btn-outline-warning btn-sm" href="{{ route('PgAsistenciasReporteDiaEventoDual', ['desde'=>$desde,'hasta'=>$hasta,'departamento_id'=>$departamentoId,'persona_id'=>$personaId]) }}">Día y Evento Dual</a>
+            <a class="btn btn-outline-warning btn-sm" href="{{ route('PgAsistenciasReporteMesDual', ['anio'=>\Carbon\Carbon::parse($hasta)->year, 'departamento_id'=>$departamentoId,'persona_id'=>$personaId]) }}">Mes Dual</a>
+        @else
+            <a class="btn btn-outline-primary btn-sm" href="{{ route('PgAsistenciasReporteDiaEvento', ['desde'=>$desde,'hasta'=>$hasta,'departamento_id'=>$departamentoId,'persona_id'=>$personaId]) }}">Asistencia por Día y Evento</a>
+            <a class="btn btn-outline-primary btn-sm" href="{{ route('PgAsistenciasReporteMes', ['anio'=>\Carbon\Carbon::parse($hasta)->year, 'departamento_id'=>$departamentoId,'persona_id'=>$personaId]) }}">Asistencia por Mes</a>
+        @endif
         <a class="btn btn-outline-secondary btn-sm" href="{{ route('PgAsistenciasReporteExportXlsResumen', ['desde'=>$desde,'hasta'=>$hasta,'departamento_id'=>$departamentoId,'persona_id'=>$personaId]) }}">Exportar XLS (Resumen)</a>
         <a class="btn btn-outline-secondary btn-sm" href="{{ route('PgAsistenciasReporteExportXlsDetalle', ['desde'=>$desde,'hasta'=>$hasta,'departamento_id'=>$departamentoId,'persona_id'=>$personaId]) }}">Exportar XLS (Detallado)</a>
         {{-- PDF en misma pestaña para evitar bloqueos de descarga/pop-up en algunos navegadores --}}

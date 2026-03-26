@@ -8,6 +8,7 @@ use App\Models\PgDepartamento;
 use App\Models\PgEvento;
 use App\Models\PgJustificacionAsistencia;
 use App\Models\PgPersona;
+use App\Services\AttendanceModeService;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
 use Illuminate\Http\Request;
@@ -47,6 +48,10 @@ class PgAsistenciaReportesController extends Controller
 
     public function Index(Request $request)
     {
+        if (AttendanceModeService::usesDualCheck()) {
+            return redirect()->route('PgAsistenciasReportesDual', $request->query());
+        }
+
         $desde = $this->parseDateInput($request->input('desde'), Carbon::today()->startOfMonth()->format('Y-m-d'));
         $hasta = $this->parseDateInput($request->input('hasta'), Carbon::today()->format('Y-m-d'));
         $departamentoId = trim((string) $request->input('departamento_id'));
@@ -101,6 +106,10 @@ class PgAsistenciaReportesController extends Controller
 
     public function IndexDual(Request $request)
     {
+        if (!AttendanceModeService::usesDualCheck()) {
+            return redirect()->route('PgAsistenciasReportes', $request->query());
+        }
+
         $desde = $this->parseDateInput($request->input('desde'), Carbon::today()->startOfMonth()->format('Y-m-d'));
         $hasta = $this->parseDateInput($request->input('hasta'), Carbon::today()->format('Y-m-d'));
         $departamentoId = trim((string) $request->input('departamento_id'));
@@ -286,6 +295,10 @@ class PgAsistenciaReportesController extends Controller
 
     public function ReporteDiaEvento(Request $request)
     {
+        if (AttendanceModeService::usesDualCheck()) {
+            return redirect()->route('PgAsistenciasReporteDiaEventoDual', $request->query());
+        }
+
         [$desde, $hasta, $departamentoId, $personaId, $departamentos, $personasSelect, $personas] = $this->resolveFiltersDiaEvento($request);
 
         $data = $this->buildDiaEvento($personas, $desde, $hasta);
@@ -304,6 +317,10 @@ class PgAsistenciaReportesController extends Controller
 
     public function ReporteDiaEventoDual(Request $request)
     {
+        if (!AttendanceModeService::usesDualCheck()) {
+            return redirect()->route('PgAsistenciasReporteDiaEvento', $request->query());
+        }
+
         [$desde, $hasta, $departamentoId, $personaId, $departamentos, $personasSelect, $personas] = $this->resolveFiltersDiaEvento($request);
         $data = $this->buildDiaEvento($personas, $desde, $hasta);
         return view('PgAsistencias.reporte_dia_evento_dual', [
@@ -356,6 +373,10 @@ class PgAsistenciaReportesController extends Controller
 
     public function ReporteMes(Request $request)
     {
+        if (AttendanceModeService::usesDualCheck()) {
+            return redirect()->route('PgAsistenciasReporteMesDual', $request->query());
+        }
+
         [$anio, $mes, $todosMeses, $soloEventos, $departamentoId, $personaId, $departamentos, $personasSelect, $personas] = $this->resolveFiltersMes($request);
 
         $data = $this->buildMesCalendario($personas, $anio, $mes, $todosMeses, $soloEventos);
@@ -375,6 +396,10 @@ class PgAsistenciaReportesController extends Controller
 
     public function ReporteMesDual(Request $request)
     {
+        if (!AttendanceModeService::usesDualCheck()) {
+            return redirect()->route('PgAsistenciasReporteMes', $request->query());
+        }
+
         [$anio, $mes, $todosMeses, $soloEventos, $departamentoId, $personaId, $departamentos, $personasSelect, $personas] = $this->resolveFiltersMes($request);
         $data = $this->buildMesCalendario($personas, (int) $anio, $mes ? (int) $mes : null, (bool) $todosMeses, (bool) $soloEventos);
         return view('PgAsistencias.reporte_mes_dual', [
