@@ -61,7 +61,12 @@
 
                                 <div class="form-group">
                                     <label>Modo de registro de asistencia</label>
-                                    @php($attendanceMode = old('configs.ASISTENCIA_MODO_REGISTRO', optional($configs->where('clave','ASISTENCIA_MODO_REGISTRO')->first())->valor ?? 'single_check'))
+                                    @php
+                                        $attendanceMode = old(
+                                            'configs.ASISTENCIA_MODO_REGISTRO',
+                                            optional($configs->where('clave','ASISTENCIA_MODO_REGISTRO')->first())->valor ?? 'single_check'
+                                        );
+                                    @endphp
                                     <select class="form-control" name="configs[ASISTENCIA_MODO_REGISTRO]">
                                         <option value="single_check" @if($attendanceMode === 'single_check') selected @endif>1 check (solo fin) → A / F</option>
                                         <option value="dual_check" @if($attendanceMode === 'dual_check') selected @endif>2 checks (inicio + fin) → A / AI / F</option>
