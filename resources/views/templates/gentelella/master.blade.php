@@ -62,10 +62,15 @@
                 }
             } elseif ($__authUser && !empty($__authUser->image)) {
                 // Fallback legacy: archivo físico en /public/photos o URL directa
-                if (file_exists(public_path('photos/' . $__authUser->image))) {
-                    $__avatarUrl = asset('photos/' . $__authUser->image);
-                } else {
+                $__imagePath = ltrim((string)$__authUser->image, '/');
+                $__photoPath = str_starts_with($__imagePath, 'photos/') ? $__imagePath : 'photos/' . $__imagePath;
+
+                if (file_exists(public_path($__photoPath))) {
+                    $__avatarUrl = asset($__photoPath);
+                } elseif (preg_match('#^https?://#i', (string)$__authUser->image)) {
                     $__avatarUrl = $__authUser->image;
+                } else {
+                    $__avatarUrl = asset($__imagePath);
                 }
             }
         @endphp
