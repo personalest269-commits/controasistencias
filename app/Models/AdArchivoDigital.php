@@ -11,6 +11,7 @@ class AdArchivoDigital extends Model
 
     public const OBJETO_CONTROL = 'AD_ARCHIVO_DIGITAL';
 
+    protected $connection = 'mysql_archivos';
     protected $table = 'ad_archivo_digital';
 
     protected $primaryKey = 'id';
