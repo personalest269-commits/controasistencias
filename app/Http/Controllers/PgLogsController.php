@@ -88,6 +88,16 @@ class PgLogsController extends Controller
         ]);
     }
 
+    public function Errors(Request $request)
+    {
+        $query = array_merge($request->query(), [
+            'level' => 'error',
+            'estado' => $request->query('estado', 'open'),
+        ]);
+
+        return redirect()->route('PgLogsIndex', $query);
+    }
+
     public function Show($id)
     {
         $log = PgLog::with('usuario')->where('id', $id)->firstOrFail();
