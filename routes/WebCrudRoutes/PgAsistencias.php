@@ -16,6 +16,7 @@ Route::group(['middleware' => ['web', 'auth', 'permission:pg_asistencias']], fun
 
 Route::group(['middleware' => ['web', 'auth', 'permission:pg_reporte_asistencias']], function () {
     Route::get('/PgAsistencias/reportes', [PgAsistenciaReportesController::class, 'Index'])->name('PgAsistenciasReportes');
+    Route::get('/PgAsistencias/reportes-dual', [PgAsistenciaReportesController::class, 'IndexDual'])->name('PgAsistenciasReportesDual');
     Route::get('/PgAsistencias/reportes/persona/{personaId}', [PgAsistenciaReportesController::class, 'DetallePersona'])->name('PgAsistenciasReportePersona');
     Route::get('/PgAsistencias/reportes/export', [PgAsistenciaReportesController::class, 'Export'])->name('PgAsistenciasReporteExport');
 
@@ -27,11 +28,13 @@ Route::group(['middleware' => ['web', 'auth', 'permission:pg_reporte_asistencias
 
     // NUEVO: Asistencia por Día y Evento (rango + export PDF/XLS)
     Route::get('/PgAsistencias/reportes/dia-evento', [PgAsistenciaReportesController::class, 'ReporteDiaEvento'])->name('PgAsistenciasReporteDiaEvento');
+    Route::get('/PgAsistencias/reportes/dia-evento-dual', [PgAsistenciaReportesController::class, 'ReporteDiaEventoDual'])->name('PgAsistenciasReporteDiaEventoDual');
     Route::get('/PgAsistencias/reportes/dia-evento/export/xls', [PgAsistenciaReportesController::class, 'ExportXlsDiaEvento'])->name('PgAsistenciasReporteDiaEventoXls');
     Route::get('/PgAsistencias/reportes/dia-evento/export/pdf', [PgAsistenciaReportesController::class, 'ExportPdfDiaEvento'])->name('PgAsistenciasReporteDiaEventoPdf');
 
     // NUEVO: Asistencia por Mes (calendario por semanas)
     Route::get('/PgAsistencias/reportes/mes', [PgAsistenciaReportesController::class, 'ReporteMes'])->name('PgAsistenciasReporteMes');
+    Route::get('/PgAsistencias/reportes/mes-dual', [PgAsistenciaReportesController::class, 'ReporteMesDual'])->name('PgAsistenciasReporteMesDual');
     Route::get('/PgAsistencias/reportes/mes/export/xls', [PgAsistenciaReportesController::class, 'ExportXlsMes'])->name('PgAsistenciasReporteMesXls');
     Route::get('/PgAsistencias/reportes/mes/export/pdf', [PgAsistenciaReportesController::class, 'ExportPdfMes'])->name('PgAsistenciasReporteMesPdf');
 });

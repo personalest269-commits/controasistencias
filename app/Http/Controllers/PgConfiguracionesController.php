@@ -40,6 +40,7 @@ class PgConfiguracionesController extends Controller
             'configs.NOMBRE_SISTEMA' => 'nullable|string|max:120',
             'configs.ITEMS_POR_PAGINA' => 'nullable|integer|min:1|max:500',
             'configs.LOGIN_TEMPLATE' => 'nullable|string|max:30',
+            'configs.ASISTENCIA_MODO_REGISTRO' => 'nullable|in:single_check,dual_check',
 
             // Seguridad (reCAPTCHA)
             'configs.RECAPTCHA_SITE_KEY' => 'nullable|string|max:255',
@@ -64,6 +65,13 @@ class PgConfiguracionesController extends Controller
         PgConfiguracion::setValor('APP_TIMEZONE', $configs['APP_TIMEZONE'] ?? null, 'texto', 'Zona horaria del sistema (PHP/Laravel)', 'general');
         PgConfiguracion::setValor('FORMATO_FECHA', $configs['FORMATO_FECHA'] ?? null, 'texto', 'Formato para mostrar fechas (Carbon/PHP date format)', 'general');
         PgConfiguracion::setValor('ITEMS_POR_PAGINA', $configs['ITEMS_POR_PAGINA'] ?? '30', 'numero', 'Cantidad de registros por página en listados', 'general');
+        PgConfiguracion::setValor(
+            'ASISTENCIA_MODO_REGISTRO',
+            $configs['ASISTENCIA_MODO_REGISTRO'] ?? 'single_check',
+            'texto',
+            'Modo de validación de asistencia: single_check (1 check) o dual_check (inicio+fin).',
+            'asistencia'
+        );
 
         PgConfiguracion::setValor('CORREO_ACTIVO', $configs['CORREO_ACTIVO'] ?? 'S', 'booleano', 'Habilitar envío de correos del sistema', 'correo');
         PgConfiguracion::setValor('REGISTRO_USUARIO_ACTIVO', $configs['REGISTRO_USUARIO_ACTIVO'] ?? 'S', 'booleano', 'Permitir registro de usuarios desde la pantalla de registro', 'seguridad');

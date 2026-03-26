@@ -17,8 +17,8 @@
 <div class="container-fluid">
     <div class="row mb-3">
         <div class="col-12">
-            <h4 class="mb-0">Reportes de asistencia</h4>
-            <small class="text-muted">Asistió = asistencia registrada. Justificó = justificación aprobada (y sin asistencia registrada para el mismo evento/día).</small>
+            <h4 class="mb-0">Reportes de asistencia (Modo Dual)</h4>
+            <small class="text-muted">A = asistencia completa, AI = asistencia incompleta, J = justificación aprobada, F = falta.</small>
         </div>
     </div>
 
@@ -29,7 +29,7 @@
         <div class="alert alert-danger">{{ session('error') }}</div>
     @endif
 
-    <form method="GET" action="{{ route('PgAsistenciasReportes') }}" class="mb-3">
+    <form method="GET" action="{{ route('PgAsistenciasReportesDual') }}" class="mb-3">
         <div class="row">
             <div class="col-md-2">
                 <label>Desde</label>
@@ -78,17 +78,9 @@
     </form>
 
     <div class="mb-3">
-        @php
-            $isDual = \App\Services\AttendanceModeService::usesDualCheck();
-        @endphp
-        @if($isDual)
-            <a class="btn btn-outline-warning btn-sm" href="{{ route('PgAsistenciasReportesDual', ['desde'=>$desde,'hasta'=>$hasta,'departamento_id'=>$departamentoId,'persona_id'=>$personaId]) }}">Resumen Dual (A/AI/F)</a>
-            <a class="btn btn-outline-warning btn-sm" href="{{ route('PgAsistenciasReporteDiaEventoDual', ['desde'=>$desde,'hasta'=>$hasta,'departamento_id'=>$departamentoId,'persona_id'=>$personaId]) }}">Día y Evento Dual</a>
-            <a class="btn btn-outline-warning btn-sm" href="{{ route('PgAsistenciasReporteMesDual', ['anio'=>\Carbon\Carbon::parse($hasta)->year, 'departamento_id'=>$departamentoId,'persona_id'=>$personaId]) }}">Mes Dual</a>
-        @else
-            <a class="btn btn-outline-primary btn-sm" href="{{ route('PgAsistenciasReporteDiaEvento', ['desde'=>$desde,'hasta'=>$hasta,'departamento_id'=>$departamentoId,'persona_id'=>$personaId]) }}">Asistencia por Día y Evento</a>
-            <a class="btn btn-outline-primary btn-sm" href="{{ route('PgAsistenciasReporteMes', ['anio'=>\Carbon\Carbon::parse($hasta)->year, 'departamento_id'=>$departamentoId,'persona_id'=>$personaId]) }}">Asistencia por Mes</a>
-        @endif
+        <a class="btn btn-outline-primary btn-sm" href="{{ route('PgAsistenciasReporteDiaEventoDual', ['desde'=>$desde,'hasta'=>$hasta,'departamento_id'=>$departamentoId,'persona_id'=>$personaId]) }}">Día y Evento (Dual)</a>
+        <a class="btn btn-outline-primary btn-sm" href="{{ route('PgAsistenciasReporteMesDual', ['anio'=>\Carbon\Carbon::parse($hasta)->year, 'departamento_id'=>$departamentoId,'persona_id'=>$personaId]) }}">Mes (Dual)</a>
+        <a class="btn btn-outline-secondary btn-sm" href="{{ route('PgAsistenciasReportes', ['desde'=>$desde,'hasta'=>$hasta,'departamento_id'=>$departamentoId,'persona_id'=>$personaId]) }}">Ver reportes clásicos</a>
         <a class="btn btn-outline-secondary btn-sm" href="{{ route('PgAsistenciasReporteExportXlsResumen', ['desde'=>$desde,'hasta'=>$hasta,'departamento_id'=>$departamentoId,'persona_id'=>$personaId]) }}">Exportar XLS (Resumen)</a>
         <a class="btn btn-outline-secondary btn-sm" href="{{ route('PgAsistenciasReporteExportXlsDetalle', ['desde'=>$desde,'hasta'=>$hasta,'departamento_id'=>$departamentoId,'persona_id'=>$personaId]) }}">Exportar XLS (Detallado)</a>
         {{-- PDF en misma pestaña para evitar bloqueos de descarga/pop-up en algunos navegadores --}}
@@ -99,10 +91,11 @@
     </div>
 
     @php
-        $tot = ['convocados'=>0,'asistidos'=>0,'justificados'=>0,'no_asistio'=>0];
+        $tot = ['convocados'=>0,'asistidos'=>0,'incompletos'=>0,'justificados'=>0,'no_asistio'=>0];
         foreach(($resumenDept ?? []) as $g){
             $tot['convocados'] += (int)($g['totales']['convocados'] ?? 0);
             $tot['asistidos'] += (int)($g['totales']['asistidos'] ?? 0);
+            $tot['incompletos'] += (int)($g['totales']['incompletos'] ?? 0);
             $tot['justificados'] += (int)($g['totales']['justificados'] ?? 0);
             $tot['no_asistio'] += (int)($g['totales']['no_asistio'] ?? 0);
         }
@@ -112,6 +105,7 @@
         <div class="d-flex flex-wrap" style="gap:14px;">
             <div><strong>Total convocados:</strong> {{ $tot['convocados'] }}</div>
             <div><strong>Total asistidos:</strong> {{ $tot['asistidos'] }}</div>
+            <div><strong>Total incompletos (AI):</strong> {{ $tot['incompletos'] }}</div>
             <div><strong>Total justificados:</strong> {{ $tot['justificados'] }}</div>
             <div><strong>Total no asistió:</strong> {{ $tot['no_asistio'] }}</div>
         </div>
@@ -123,7 +117,7 @@
                 <div class="d-flex flex-wrap justify-content-between align-items-center" style="gap:10px;">
                     <strong>{{ $g['departamento'] }}</strong>
                     <div class="text-muted" style="font-size:12px;">
-                        Convocados: <strong>{{ $g['totales']['convocados'] }}</strong> | Asistidos: <strong>{{ $g['totales']['asistidos'] }}</strong> | Justificados: <strong>{{ $g['totales']['justificados'] }}</strong> | No asistió: <strong>{{ $g['totales']['no_asistio'] }}</strong>
+                        Convocados: <strong>{{ $g['totales']['convocados'] }}</strong> | Asistidos: <strong>{{ $g['totales']['asistidos'] }}</strong> | Incompletos: <strong>{{ $g['totales']['incompletos'] ?? 0 }}</strong> | Justificados: <strong>{{ $g['totales']['justificados'] }}</strong> | No asistió: <strong>{{ $g['totales']['no_asistio'] }}</strong>
                     </div>
                 </div>
             </div>
@@ -135,6 +129,7 @@
                                 <th>Persona</th>
                                 <th class="text-center">Convocados</th>
                                 <th class="text-center">Asistidos</th>
+                                <th class="text-center">Incompletos (AI)</th>
                                 <th class="text-center">Justificados</th>
                                 <th class="text-center">No asistió</th>
                                 <th></th>
@@ -146,6 +141,7 @@
                                     <td>{{ $r['nombre'] }}</td>
                                     <td class="text-center">{{ $r['convocados'] }}</td>
                                     <td class="text-center">{{ $r['asistidos'] }}</td>
+                                    <td class="text-center">{{ $r['incompletos'] ?? 0 }}</td>
                                     <td class="text-center">{{ $r['justificados'] }}</td>
                                     <td class="text-center">{{ $r['no_asistio'] }}</td>
                                     <td class="text-right">
@@ -153,7 +149,7 @@
                                     </td>
                                 </tr>
                             @empty
-                                <tr><td colspan="6" class="text-muted">Sin datos.</td></tr>
+                                <tr><td colspan="7" class="text-muted">Sin datos.</td></tr>
                             @endforelse
                         </tbody>
                     </table>
