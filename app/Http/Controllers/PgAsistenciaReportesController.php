@@ -99,6 +99,41 @@ class PgAsistenciaReportesController extends Controller
         ]);
     }
 
+    public function IndexDual(Request $request)
+    {
+        $desde = $this->parseDateInput($request->input('desde'), Carbon::today()->startOfMonth()->format('Y-m-d'));
+        $hasta = $this->parseDateInput($request->input('hasta'), Carbon::today()->format('Y-m-d'));
+        $departamentoId = trim((string) $request->input('departamento_id'));
+        $personaId = trim((string) $request->input('persona_id'));
+        if ($departamentoId === '') $departamentoId = null;
+        if ($personaId === '') $personaId = null;
+
+        $departamentos = $this->departamentosVigentes();
+        $personasSelectQ = PgPersona::query()->where(function ($q) { $q->whereNull('estado')->orWhere('estado', '<>', 'X'); });
+        if ($departamentoId) $personasSelectQ->where('departamento_id', $departamentoId);
+        $personasSelect = $personasSelectQ->orderBy('identificacion')->orderBy('apellido1')->orderBy('apellido2')->orderBy('nombres')
+            ->get(['id', 'identificacion', 'nombres', 'apellido1', 'apellido2']);
+
+        $personasQ = PgPersona::query()->where(function ($q) { $q->whereNull('estado')->orWhere('estado', '<>', 'X'); });
+        if ($departamentoId) $personasQ->where('departamento_id', $departamentoId);
+        if ($personaId) $personasQ->where('id', $personaId);
+        $personas = $personasQ->orderBy('apellido1')->orderBy('apellido2')->orderBy('nombres')->get();
+
+        $summary = $this->buildSummary($personas, $desde, $hasta);
+        $resumenDept = $this->buildResumenDepartamento($summary, $departamentos);
+
+        return view('PgAsistencias.reportes_dual', compact(
+            'desde',
+            'hasta',
+            'departamentoId',
+            'personaId',
+            'departamentos',
+            'personasSelect',
+            'summary',
+            'resumenDept'
+        ));
+    }
+
     public function DetallePersona(Request $request, string $personaId)
     {
         $desde = $this->parseDateInput($request->input('desde'), Carbon::today()->startOfMonth()->format('Y-m-d'));
@@ -267,6 +302,21 @@ class PgAsistenciaReportesController extends Controller
         ]);
     }
 
+    public function ReporteDiaEventoDual(Request $request)
+    {
+        [$desde, $hasta, $departamentoId, $personaId, $departamentos, $personasSelect, $personas] = $this->resolveFiltersDiaEvento($request);
+        $data = $this->buildDiaEvento($personas, $desde, $hasta);
+        return view('PgAsistencias.reporte_dia_evento_dual', [
+            'desde' => $desde,
+            'hasta' => $hasta,
+            'departamentoId' => $departamentoId,
+            'personaId' => $personaId,
+            'departamentos' => $departamentos,
+            'personasSelect' => $personasSelect,
+            'data' => $data,
+        ]);
+    }
+
     public function ExportXlsDiaEvento(Request $request)
     {
         [$desde, $hasta, $departamentoId, $personaId, $departamentos, $personasSelect, $personas] = $this->resolveFiltersDiaEvento($request);
@@ -320,6 +370,23 @@ class PgAsistenciaReportesController extends Controller
             'departamentos' => $departamentos,
             'personasSelect' => $personasSelect,
             'months' => $data['months'],
+        ]);
+    }
+
+    public function ReporteMesDual(Request $request)
+    {
+        [$anio, $mes, $todosMeses, $soloEventos, $departamentoId, $personaId, $departamentos, $personasSelect, $personas] = $this->resolveFiltersMes($request);
+        $data = $this->buildMesCalendario($personas, (int) $anio, $mes ? (int) $mes : null, (bool) $todosMeses, (bool) $soloEventos);
+        return view('PgAsistencias.reporte_mes_dual', [
+            'anio' => $anio,
+            'mes' => $mes,
+            'todosMeses' => $todosMeses,
+            'soloEventos' => $soloEventos,
+            'departamentoId' => $departamentoId,
+            'personaId' => $personaId,
+            'departamentos' => $departamentos,
+            'personasSelect' => $personasSelect,
+            'data' => $data,
         ]);
     }
 
@@ -614,14 +681,14 @@ class PgAsistenciaReportesController extends Controller
                     'nombre' => $p->nombre_completo,
                     'departamento' => optional($p->departamento)->descripcion,
                     'cells' => [],
-                    'totales' => ['convocados' => 0, 'asistio' => 0, 'justifico' => 0, 'no' => 0],
+                    'totales' => ['convocados' => 0, 'asistio' => 0, 'incompleto' => 0, 'justifico' => 0, 'no' => 0],
                 ];
 
                 foreach ($datesToProcess as $dateStr) {
                     $events = $dateEvents[$dateStr] ?? [];
                     $targets = $dateTargets[$dateStr] ?? ['deps' => [], 'pers' => []];
 
-                    $cntA = 0; $cntJ = 0; $cntF = 0;
+                    $cntA = 0; $cntAI = 0; $cntJ = 0; $cntF = 0;
                     $eventCodes = [];
                     foreach ($events as $eid => $e) {
                         if (!$this->eventAppliesToPerson($eid, $p->id, $p->departamento_id, $targets)) {
@@ -633,6 +700,9 @@ class PgAsistenciaReportesController extends Controller
                         if ($st === 'A') {
                             $cntA++;
                             $status = 'A';
+                        } elseif ($st === 'AI') {
+                            $cntAI++;
+                            $status = 'AI';
                         } elseif (!empty($justMap[$p->id][$k])) {
                             $cntJ++;
                             $status = 'J';
@@ -649,13 +719,14 @@ class PgAsistenciaReportesController extends Controller
                         $eventCodes[] = ($eventTitle !== '' ? $eventTitle : 'Evento') . ' (' . $status . ')';
                     }
 
-                    if (($cntA + $cntJ + $cntF) === 0) {
+                    if (($cntA + $cntAI + $cntJ + $cntF) === 0) {
                         $row['cells'][$dateStr] = null;
                         continue;
                     }
 
                     $markParts = [];
                     if ($cntA > 0) $markParts[] = 'A';
+                    if ($cntAI > 0) $markParts[] = 'AI';
                     if ($cntJ > 0) $markParts[] = 'J';
                     if ($cntF > 0) $markParts[] = 'F';
                     $mark = implode('/', $markParts);
@@ -663,12 +734,14 @@ class PgAsistenciaReportesController extends Controller
                     $row['cells'][$dateStr] = [
                         'mark' => $mark,
                         'a' => $cntA,
+                        'ai' => $cntAI,
                         'j' => $cntJ,
                         'f' => $cntF,
                         'event_codes' => $eventCodes,
                     ];
-                    $row['totales']['convocados'] += ($cntA + $cntJ + $cntF);
+                    $row['totales']['convocados'] += ($cntA + $cntAI + $cntJ + $cntF);
                     $row['totales']['asistio'] += $cntA;
+                    $row['totales']['incompleto'] += $cntAI;
                     $row['totales']['justifico'] += $cntJ;
                     $row['totales']['no'] += $cntF;
                 }
@@ -789,7 +862,7 @@ class PgAsistenciaReportesController extends Controller
                 'nombre' => $p->nombre_completo,
                 'departamento' => optional($p->departamento)->descripcion,
                 'cells' => [],
-                'totales' => ['convocados' => 0, 'asistio' => 0, 'justifico' => 0, 'no' => 0],
+                'totales' => ['convocados' => 0, 'asistio' => 0, 'incompleto' => 0, 'justifico' => 0, 'no' => 0],
             ];
 
             foreach ($dates as $d) {
@@ -799,6 +872,7 @@ class PgAsistenciaReportesController extends Controller
 
                 $lines = [];
                 $cntA = 0;
+                $cntAI = 0;
                 $cntJ = 0;
                 $cntF = 0;
 
@@ -812,6 +886,9 @@ class PgAsistenciaReportesController extends Controller
                     if ($st === 'A') {
                         $status = 'A';
                         $cntA++;
+                    } elseif ($st === 'AI') {
+                        $status = 'AI';
+                        $cntAI++;
                     } elseif (!empty($justMap[$p->id][$k])) {
                         $status = 'J';
                         $cntJ++;
@@ -832,15 +909,17 @@ class PgAsistenciaReportesController extends Controller
                     ];
                 }
 
-                if (($cntA + $cntJ + $cntF) > 0) {
+                if (($cntA + $cntAI + $cntJ + $cntF) > 0) {
                     $row['cells'][$dateStr] = [
                         'a' => $cntA,
+                        'ai' => $cntAI,
                         'j' => $cntJ,
                         'f' => $cntF,
                         'lines' => $lines,
                     ];
-                    $row['totales']['convocados'] += ($cntA + $cntJ + $cntF);
+                    $row['totales']['convocados'] += ($cntA + $cntAI + $cntJ + $cntF);
                     $row['totales']['asistio'] += $cntA;
+                    $row['totales']['incompleto'] += $cntAI;
                     $row['totales']['justifico'] += $cntJ;
                     $row['totales']['no'] += $cntF;
                 } else {
@@ -898,6 +977,7 @@ class PgAsistenciaReportesController extends Controller
         foreach ($personas as $p) {
             $convocados = 0;
             $asistidos = 0;
+            $incompletos = 0;
             $justificados = 0;
 
             foreach ($period as $d) {
@@ -918,6 +998,8 @@ class PgAsistenciaReportesController extends Controller
                     $st = $asistMap[$p->id][$k] ?? '';
                     if ($st === 'A') {
                         $asistidos++;
+                    } elseif ($st === 'AI') {
+                        $incompletos++;
                     } elseif (!empty($justMap[$p->id][$k])) {
                         $justificados++;
                     } elseif ($st === 'F') {
@@ -927,7 +1009,7 @@ class PgAsistenciaReportesController extends Controller
             }
 
             // Faltas: si existen registros F, se contabiliza por el faltante igualmente.
-            $noAsistio = max(0, $convocados - $asistidos - $justificados);
+            $noAsistio = max(0, $convocados - $asistidos - $incompletos - $justificados);
 
             $summary[] = [
                 'persona_id' => $p->id,
@@ -935,6 +1017,7 @@ class PgAsistenciaReportesController extends Controller
                 'departamento_id' => $p->departamento_id,
                 'convocados' => $convocados,
                 'asistidos' => $asistidos,
+                'incompletos' => $incompletos,
                 'justificados' => $justificados,
                 'no_asistio' => $noAsistio,
             ];
@@ -963,13 +1046,14 @@ class PgAsistenciaReportesController extends Controller
                 $groups[$key] = [
                     'departamento_id' => $depId !== '' ? $depId : null,
                     'departamento' => $depId !== '' ? ($depName[$depId] ?? $depId) : 'Sin departamento',
-                    'totales' => ['convocados' => 0, 'asistidos' => 0, 'justificados' => 0, 'no_asistio' => 0],
+                    'totales' => ['convocados' => 0, 'asistidos' => 0, 'incompletos' => 0, 'justificados' => 0, 'no_asistio' => 0],
                     'personas' => [],
                 ];
             }
             $groups[$key]['personas'][] = $r;
             $groups[$key]['totales']['convocados'] += (int) ($r['convocados'] ?? 0);
             $groups[$key]['totales']['asistidos'] += (int) ($r['asistidos'] ?? 0);
+            $groups[$key]['totales']['incompletos'] += (int) ($r['incompletos'] ?? 0);
             $groups[$key]['totales']['justificados'] += (int) ($r['justificados'] ?? 0);
             $groups[$key]['totales']['no_asistio'] += (int) ($r['no_asistio'] ?? 0);
         }
