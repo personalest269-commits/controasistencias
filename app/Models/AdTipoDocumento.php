@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 class AdTipoDocumento extends Model
 {
     use EstadoSoftDeletes;
+    protected $connection = 'mysql_archivos';
     protected $table = 'ad_tipo_documento';
 
     protected $primaryKey = 'codigo';
