@@ -9,6 +9,7 @@ use Laravel\Passport\Console\KeysCommand;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Passport\Passport;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Pagination\Paginator;
 use App\Models\PgConfiguracion;
@@ -41,6 +42,38 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Permite sobreescribir la conexión mysql_archivos desde pg_configuraciones_bases.
+        try {
+            if (Schema::hasTable('pg_configuraciones_bases')) {
+                $cfgBaseArchivos = DB::table('pg_configuraciones_bases')
+                    ->where('nombre', 'conexion_archivos_mysql')
+                    ->where('driver', 'mysql')
+                    ->where('activo', 'S')
+                    ->whereNull('estado')
+                    ->first();
+
+                if ($cfgBaseArchivos) {
+                    $baseConnection = (array) config('database.connections.mysql_archivos', []);
+                    $baseConnection['driver'] = $cfgBaseArchivos->driver ?: ($baseConnection['driver'] ?? 'mysql');
+                    $baseConnection['host'] = $cfgBaseArchivos->host ?: ($baseConnection['host'] ?? '127.0.0.1');
+                    $baseConnection['port'] = $cfgBaseArchivos->port ?: ($baseConnection['port'] ?? '3306');
+                    $baseConnection['database'] = $cfgBaseArchivos->database ?: ($baseConnection['database'] ?? null);
+                    $baseConnection['schema'] = $cfgBaseArchivos->schema ?: ($baseConnection['schema'] ?? null);
+                    $baseConnection['username'] = $cfgBaseArchivos->username ?: ($baseConnection['username'] ?? null);
+                    $baseConnection['password'] = $cfgBaseArchivos->password ?: ($baseConnection['password'] ?? null);
+                    $baseConnection['charset'] = $cfgBaseArchivos->charset ?: ($baseConnection['charset'] ?? 'utf8mb4');
+                    $baseConnection['collation'] = $cfgBaseArchivos->collation ?: ($baseConnection['collation'] ?? 'utf8mb4_unicode_ci');
+
+                    Config::set('database.connections.mysql_archivos', $baseConnection);
+
+                    // Si ya estaba resuelta la conexión en este request, forzamos recarga.
+                    DB::purge('mysql_archivos');
+                }
+            }
+        } catch (\Throwable $e) {
+            // Ignore during installs/migrations when DB may not be ready.
+        }
+
         // Aplicar configuraciones del sistema desde BD (timezone, nombre, etc.)
         try {
             PgConfiguracion::applyRuntime();
