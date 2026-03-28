@@ -429,8 +429,11 @@ class PgAsistenciaReportesEmpresaController extends Controller
 
         // Checkbox: si NO viene en el request, es false (cuando el usuario lo desmarca)
         $todosMeses = $request->has('todos_meses') && ((string)$request->input('todos_meses')) === '1';
-        // Si no hay mes seleccionado, forzamos todos los meses
-        if ($mes === null) $todosMeses = true;
+        // Por defecto, cuando no se selecciona mes, mostramos el mes actual para evitar cargas masivas.
+        if ($mes === null) {
+            $mes = (int) $today->month;
+            $todosMeses = false;
+        }
 
         $empresaId = trim((string)$request->input('empresa_id'));
         if ($empresaId === '') $empresaId = null;
