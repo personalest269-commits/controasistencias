@@ -186,6 +186,9 @@
                             <label class="custom-control-label" for="chkAutoSave">Auto-actualizar</label>
                         </div>
                         <input type="hidden" name="auto_close" id="auto_close" value="0" />
+                        <button class="btn btn-info btn-sm" type="button" id="btnRefrescarPagina">
+                            <i class="fas fa-sync-alt"></i> Refrescar
+                        </button>
                         <a href="{{ route('PgAsistenciasReportes') }}" class="btn btn-warning btn-sm" id="btnReportes">Reportes</a>
                         <button class="btn btn-success btn-sm" type="submit" id="btnActualizar">Actualizar</button>
                     </div>
@@ -347,6 +350,16 @@
             });
             $('.js-eventos').select2({ width:'100%', language:'es' });
 
+            function refreshWithCurrentFilters(){
+                var query = $('#filterForm').serialize();
+                var baseUrl = '{{ route('PgAsistenciasIndex') }}';
+                window.location.href = query ? (baseUrl + '?' + query) : baseUrl;
+            }
+
+            $('#btnRefrescarPagina').on('click', function(){
+                refreshWithCurrentFilters();
+            });
+
             $('.js-person-file').on('change', function(){
                 var input = this;
                 var targetId = $(input).data('preview-target');
@@ -466,9 +479,13 @@
                 if (!force && !$('#chkAutoSave').is(':checked')) return;
                 if (saveTimer[pid]) clearTimeout(saveTimer[pid]);
                 saveTimer[pid] = setTimeout(function(){
-                    savePersona(pid).fail(function(xhr){
-                        console.error('Auto-actualizar falló', xhr);
-                    });
+                    savePersona(pid)
+                        .done(function(){
+                            refreshWithCurrentFilters();
+                        })
+                        .fail(function(xhr){
+                            console.error('Auto-actualizar falló', xhr);
+                        });
                 }, 400);
             }
 
